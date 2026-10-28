@@ -1,87 +1,85 @@
-# Deploying Settle to Render
+# Deploying Settle
 
-`render.yaml` defines everything: a Postgres database, the web service, and an hourly cron job
-that runs the agent.
+| Piece | Where | Why |
+|---|---|---|
+| Web app | **Render** free web service (`render.yaml`) | Next.js server; migrations run on every deploy |
+| Database | **Neon** free Postgres | Doesn't expire (Render's free Postgres is deleted after 30 days; judging runs to Dec 15) |
+| Hourly agent | **GitHub Actions** schedule (`.github/workflows/agent-cron.yml`) | Free; Render cron jobs aren't |
+| Mode | `DEMO_MODE=true` | Invoices go to the sandbox buyer, demo clock and Reset demo enabled |
 
 ## How the database works
 
-| | Local dev | Render |
+| | Local dev | Production |
 |---|---|---|
 | Provider | SQLite (`prisma/schema.prisma`) | Postgres (`prisma/postgres/schema.prisma`, generated) |
 | Migrations | `prisma/migrations` | `prisma/postgres/migrations` |
-| Applied by | `npm run db:migrate` | `prisma migrate deploy` in `npm run start:render`, on every deploy |
+| Applied by | `npm run setup` / `npm run db:migrate` | `prisma migrate deploy` in `npm run start:render`, on every deploy |
 
-**Changing the schema:** edit `prisma/schema.prisma`, then run both:
-
-```bash
-npm run db:migrate                      # SQLite migration for local dev
-npm run db:migrate:pg -- add_something  # matching Postgres migration + refreshed snapshot
-```
-
-Commit both migration folders. `npm run build:render` fails if you forget the Postgres one.
+When you change the schema, run **both** `npm run db:migrate` and `npm run db:migrate:pg -- <name>` and
+commit both migration folders. The Render build fails if the Postgres snapshot is stale.
 
 ## Environment variables
 
-Set in the Render dashboard (`settle` service → Environment). The Blueprint creates the keys;
-you fill in those marked **you**.
+### Render (service `settle` → Environment)
 
-| Variable | Value | Set by |
-|---|---|---|
-| `DATABASE_URL` | Render Postgres internal connection string | Blueprint (auto) |
-| `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` | Blueprint |
-| `PAYPAL_CLIENT_ID` | Sandbox app client ID | **you** |
-| `PAYPAL_CLIENT_SECRET` | Sandbox app secret | **you** |
-| `PAYPAL_WEBHOOK_ID` | ID of the webhook you register in step 5 | **you** (after deploy) |
-| `ANTHROPIC_API_KEY` | Anthropic API key | **you** |
-| `ANTHROPIC_MODEL` | `claude-opus-5-5` | Blueprint (change if you like) |
-| `APP_BASE_URL` | Your public URL, e.g. `https://settle.onrender.com` | **you** |
-| `CRON_SECRET` | Random secret, shared with the cron job | Blueprint (generated) |
-| `DEMO_MODE` | `true` to show "Reset demo" / "Load demo data" | Blueprint (`true`) |
-| `NODE_VERSION` | `22` | Blueprint |
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Neon **direct** connection string (not the `-pooler` one), ending in `?sslmode=require` |
+| `PAYPAL_CLIENT_ID` | Sandbox app client ID |
+| `PAYPAL_CLIENT_SECRET` | Sandbox app secret |
+| `PAYPAL_WEBHOOK_ID` | ID of the webhook you register in step 6 |
+| `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` (preset by the Blueprint) |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `ANTHROPIC_MODEL` | `claude-opus-5-5` (preset) |
+| `APP_BASE_URL` | `https://<your-service>.onrender.com` |
+| `CRON_SECRET` | A long random string; **the same value** goes in the GitHub secret |
+| `DEMO_MODE` | `true` (preset) |
+| `SANDBOX_BUYER_EMAIL` | Sandbox **personal** account that receives and pays every invoice |
+| `SANDBOX_SUB1_EMAIL` | Sandbox personal account for subcontractor payouts |
+| `SANDBOX_SUB2_EMAIL` | Another sandbox personal account for subcontractor payouts |
+| `NODE_VERSION` | `22` (preset) |
 
-The cron job (`settle-agent-hourly`) gets `SETTLE_URL` and `CRON_SECRET` from the web service
-automatically.
+Generate `CRON_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
-`SANDBOX_BUYER_EMAIL` is only used by the local smoke script and isn't needed on Render.
+### GitHub (repo → Settings → Secrets and variables → Actions → New repository secret)
+
+| Secret | Value |
+|---|---|
+| `SETTLE_URL` | `https://<your-service>.onrender.com` |
+| `CRON_SECRET` | Same value as on Render |
+
+CI (`ci.yml`) needs no secrets: its tests mock PayPal and Claude.
 
 ## Step by step
 
-1. **Push the repo to GitHub** (public, for judging).
-2. **Create the Blueprint.** In Render: **New → Blueprint**, pick the repo, then **Apply**. Render
-   creates `settle-db`, `settle` and `settle-agent-hourly` and prompts for the `sync: false` variables.
-   Enter the PayPal client ID/secret and Anthropic key. Leave `PAYPAL_WEBHOOK_ID` empty for now and
-   put a placeholder in `APP_BASE_URL`.
-   - The cron job needs a paid instance type (Render has no free cron jobs). To stay on the free
-     plan, delete `settle-agent-hourly` and use **Sync with PayPal** / **Run agent now** in the UI.
-     Alternatively, call the endpoint from any external scheduler:
-     `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/agent`
-3. **Wait for the first deploy.** The build generates the Postgres client; the start command runs
-   `prisma migrate deploy` and then `next start`. Render waits for `/api/health` to return 200.
-4. **Check it.** Open `https://<your-service>.onrender.com/api/health`. You should see
-   `"db":"ok"`, `"paypal":"sandbox"` and `"ai":"configured"`. Set `APP_BASE_URL` to that origin.
-   Open the app and click **Load demo data** for the sample invoices.
-5. **Register the production webhook in PayPal:**
-   1. Go to <https://developer.paypal.com/dashboard/applications/sandbox> and open the **same app**
-      whose client ID you set on Render.
-   2. Scroll to **Sandbox Webhooks → Add Webhook**.
-   3. Webhook URL: `https://<your-service>.onrender.com/api/webhooks/paypal`
-   4. Event types:
-      - `Invoicing invoice paid`, `Invoicing invoice updated`, `Invoicing invoice cancelled`,
-        `Invoicing invoice refunded`
-      - all `Payment payouts-item …` events (succeeded, failed, blocked, canceled, denied, held,
-        refunded, returned, unclaimed)
-   5. Save, then copy the **Webhook ID** shown in the list.
-   6. In Render, set `PAYPAL_WEBHOOK_ID` to that ID and save. Render redeploys automatically.
-6. **Test end to end.** Create an invoice to your sandbox **personal** account's email, pay it from
-   the PayPal link while logged in as that account, and watch the invoice turn PAID (webhook) within
-   seconds. The agent proposes the subcontractor payout in the inbox.
-   - In Render's logs, a rejected webhook shows `signature verification failed`. That means
-     `PAYPAL_WEBHOOK_ID` doesn't match the app or URL.
+1. **Sandbox accounts.** At [developer.paypal.com](https://developer.paypal.com/dashboard/accounts) → Testing
+   Tools → Sandbox Accounts, make sure you have one **Business** account (your app's owner) and create
+   **three Personal** accounts: buyer, sub 1, sub 2. In Apps & Credentials → Sandbox → your app, note the
+   client ID/secret and check that **Invoicing** and **Payouts** are enabled under features.
+2. **Neon.** Sign up at [neon.tech](https://neon.tech) → create a project (any region near your Render
+   region) → **Connection details** → turn **Connection pooling off** → copy the connection string.
+   Migrations need the direct connection; Prisma's migrate lock doesn't work through PgBouncer.
+3. **Push the repo** to a public GitHub repository.
+4. **Render.** Go to **New → Blueprint**, select the repo, then **Apply**. Fill in every `sync: false`
+   variable from the table above. Put a placeholder in `APP_BASE_URL` and leave `PAYPAL_WEBHOOK_ID`
+   empty for now. The first deploy builds, runs `prisma migrate deploy` against Neon, then starts.
+5. **Check it.** Open `https://<service>.onrender.com/api/health`. Expect `"db":"ok"`, `"paypal":"sandbox"`,
+   `"ai":"configured"` and `"demoMode":true`. Set `APP_BASE_URL` to that origin. Open the app and click
+   **Load demo data**. It creates five real sandbox invoices for your buyer, which takes about 30 seconds.
+6. **Webhook.** In the PayPal developer dashboard → your sandbox app → **Sandbox Webhooks → Add Webhook**:
+   - URL: `https://<service>.onrender.com/api/webhooks/paypal`
+   - Events: `Invoicing invoice paid`, `… updated`, `… cancelled`, `… refunded`, and all
+     `Payment payouts-item …` events.
+   - Save, copy the **Webhook ID** into Render's `PAYPAL_WEBHOOK_ID`. Render redeploys.
+7. **GitHub Actions.** Add the `SETTLE_URL` and `CRON_SECRET` secrets. Open the **Actions** tab → *Hourly
+   agent run* → **Run workflow** once and check that it logs `HTTP 200`.
+8. **End-to-end check.** Create an invoice from a sample agreement, pay it as the sandbox buyer, wait for
+   the webhook (or click Sync), approve the payout, and confirm the batch on `/payouts`.
 
-## Free-tier notes
+## Notes
 
-- Free web services sleep after ~15 minutes idle; the first request takes ~1 minute. Open the app
-  before a live demo.
-- Free Postgres databases expire after 30 days.
-- PayPal retries webhooks that fail while the service is waking up, and **Sync with PayPal**
-  catches anything missed.
+- Free Render services sleep after ~15 idle minutes, and the first request takes about a minute. The cron
+  script retries, and PayPal retries webhooks, so nothing is lost. Open the app a minute before a demo.
+- GitHub disables scheduled workflows after 60 days without repository activity. Push a commit or
+  re-enable it if judging runs longer.
+- The rate limiter is in memory (20 AI requests per hour per IP). That's fine for one Render instance.

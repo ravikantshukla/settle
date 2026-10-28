@@ -1,0 +1,34 @@
+name: Hourly agent run
+
+# Syncs with PayPal, runs the collections agent (proposals only, never executes) and refreshes
+# risk reasons on the deployed app. Needs repository secrets SETTLE_URL and CRON_SECRET.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-cron
+  cancel-in-progress: false
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Call /api/cron/agent
+        env:
+          SETTLE_URL: ${{ secrets.SETTLE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SETTLE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::warning::SETTLE_URL / CRON_SECRET secrets are not set; skipping."
+            exit 0
+          fi
+          node scripts/cron-agent.mjs
