@@ -165,7 +165,8 @@ export async function paypalFetch<T = unknown>(
       ...opts.headers,
     };
     const body = opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body));
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    // PayPal rejects body-less POSTs (e.g. generate-next-invoice-number) without a JSON content type (415).
+    if (body !== undefined || method !== "GET") headers["Content-Type"] = "application/json";
     if (opts.requestId) headers["PayPal-Request-Id"] = opts.requestId;
     if (opts.preferRepresentation) headers["Prefer"] = "return=representation";
 
