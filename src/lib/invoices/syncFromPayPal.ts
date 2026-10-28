@@ -35,6 +35,23 @@ export async function applyPayPalInvoice(local: Invoice, remote: PayPalInvoice):
   };
   const changed = status !== local.status || amountPaid !== previousPaid;
 
+  // Record individual payments (idempotent on PayPal's payment_id) for the timeline and KPIs.
+  for (const tx of remote.payments?.transactions ?? []) {
+    if (!tx.payment_id || !tx.amount) continue;
+    await prisma.invoicePayment.upsert({
+      where: { paypalPaymentId: tx.payment_id },
+      create: {
+        invoiceId: local.id,
+        paypalPaymentId: tx.payment_id,
+        amount: Number(tx.amount.value),
+        currency: tx.amount.currency_code,
+        method: tx.method ?? null,
+        paidAt: tx.payment_date ? new Date(tx.payment_date) : new Date(),
+      },
+      update: {},
+    });
+  }
+
   // Optimistic concurrency: only the writer that actually moves amountPaid fires the agent,
   // so a webhook and a manual sync racing on the same payment trigger it once.
   const { count } = await prisma.invoice.updateMany({

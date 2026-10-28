@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
+import { refreshRiskScores } from "@/lib/agent/risk";
 import { syncOpenInvoices } from "@/lib/invoices/syncFromPayPal";
 import { syncOpenPayouts } from "@/lib/payouts/records";
 
@@ -17,7 +18,7 @@ function authorized(req: Request): boolean {
 }
 
 /**
- * Scheduled run: sync with PayPal, then let the agent propose actions.
+ * Scheduled run: sync with PayPal, let the agent propose actions, refresh stale risk scores.
  *   curl -X POST -H "Authorization: Bearer $CRON_SECRET" $APP_BASE_URL/api/cron/agent
  */
 export async function POST(req: Request) {
@@ -30,7 +31,8 @@ export async function POST(req: Request) {
     const invoices = await syncOpenInvoices();
     const payouts = await syncOpenPayouts();
     const run = await runAgent("scheduled");
-    return NextResponse.json({ sync: { invoices, payouts }, run });
+    const risk = await refreshRiskScores().catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return NextResponse.json({ sync: { invoices, payouts }, run, risk });
   } catch (e) {
     console.error("scheduled agent run failed", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "Run failed" }, { status: 500 });

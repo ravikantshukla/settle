@@ -1,93 +1,68 @@
 import Link from "next/link";
+import { RefreshRiskButton } from "@/components/RefreshRiskButton";
 import { SyncButton } from "@/components/SyncButton";
-import { num, prisma } from "@/lib/db";
+import { money } from "@/lib/format";
+import { dashboardData } from "@/lib/invoices/dashboard";
+import { DashboardGrid } from "./DashboardGrid";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_STYLE: Record<string, string> = {
-  PAID: "bg-emerald-100 text-emerald-800",
-  MARKED_AS_PAID: "bg-emerald-100 text-emerald-800",
-  PARTIALLY_PAID: "bg-sky-100 text-sky-800",
-  CANCELLED: "bg-slate-200 text-slate-600",
-  DRAFT: "bg-slate-100 text-slate-700",
-};
+function Kpi({ label, value, hint, tone = "default", href }: { label: string; value: string; hint?: string; tone?: "default" | "danger" | "good" | "accent"; href?: string }) {
+  const valueColor = { default: "text-slate-900", danger: "text-red-700", good: "text-emerald-700", accent: "text-[#0070ba]" }[tone];
+  const body = (
+    <>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueColor}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
+    </>
+  );
+  const cls = "rounded-xl border border-slate-200 bg-white px-4 py-3";
+  return href ? (
+    <Link href={href} className={`${cls} transition hover:border-[#0070ba]/40 hover:shadow-sm`}>{body}</Link>
+  ) : (
+    <div className={cls}>{body}</div>
+  );
+}
 
-export default async function InvoicesPage() {
-  const invoices = await prisma.invoice.findMany({
-    orderBy: { issueDate: "desc" },
-    include: { project: { include: { client: true } } },
-  });
-  const now = Date.now();
+export default async function DashboardPage() {
+  const { rows, kpis } = await dashboardData();
+  const c = kpis.currency;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Invoices</h1>
-        <div className="ml-auto flex items-center gap-3">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Receivables</h1>
+          <p className="mt-1 text-sm text-slate-600">Everything clients owe you, how late it is, and what the agent suggests next.</p>
+        </div>
+        <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
           <SyncButton />
+          <RefreshRiskButton />
           <Link href="/invoices/new" className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
             New invoice
           </Link>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
-            <tr>
-              <th className="px-4 py-2 font-medium">Invoice</th>
-              <th className="px-4 py-2 font-medium">Client</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 text-right font-medium">Amount</th>
-              <th className="px-4 py-2 text-right font-medium">Paid</th>
-              <th className="px-4 py-2 font-medium">Due</th>
-              <th className="px-4 py-2 font-medium" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {invoices.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                  No invoices yet. Run <code>npm run db:seed</code> for demo data or create one.
-                </td>
-              </tr>
-            )}
-            {invoices.map((inv) => {
-              const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: inv.currency });
-              const open = !["PAID", "MARKED_AS_PAID", "CANCELLED", "REFUNDED", "MARKED_AS_REFUNDED"].includes(inv.status);
-              const daysOverdue = inv.dueDate && open ? Math.floor((now - inv.dueDate.getTime()) / 86_400_000) : 0;
-              return (
-                <tr key={inv.id}>
-                  <td className="px-4 py-2.5">
-                    <span className="font-medium">{inv.number}</span>
-                    {inv.isDemo && <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">DEMO</span>}
-                    <div className="text-xs text-slate-500">{inv.project.title}</div>
-                  </td>
-                  <td className="px-4 py-2.5">{inv.project.client.company ?? inv.project.client.name}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_STYLE[inv.status] ?? "bg-amber-100 text-amber-800"}`}>
-                      {inv.status.replaceAll("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{fmt.format(num(inv.amount))}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{fmt.format(num(inv.amountPaid))}</td>
-                  <td className="px-4 py-2.5">
-                    {inv.dueDate?.toISOString().slice(0, 10) ?? "—"}
-                    {daysOverdue > 0 && <span className="ml-2 text-xs font-medium text-red-700">{daysOverdue}d overdue</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    {inv.payerViewUrl && (
-                      <a href={inv.payerViewUrl} target="_blank" rel="noreferrer" className="text-xs text-[#0070ba] hover:underline">
-                        PayPal ↗
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Kpi label="Outstanding" value={money(kpis.totalOutstanding, c)} hint={`${rows.filter((r) => r.outstanding > 0).length} open invoice(s)`} />
+        <Kpi label="Overdue" value={money(kpis.overdueAmount, c)} hint={`${kpis.overdueCount} invoice(s) past due`} tone={kpis.overdueAmount > 0 ? "danger" : "default"} />
+        <Kpi label="Collected this month" value={money(kpis.collectedThisMonth, c)} tone="good" />
+        <Kpi label="Avg. days to pay" value={kpis.averageDaysToPay === null ? "—" : `${kpis.averageDaysToPay} days`} hint="Issue date → paid in full" />
+        <Kpi label="Pending approvals" value={String(kpis.pendingActions)} hint="Review in the agent inbox →" tone={kpis.pendingActions ? "accent" : "default"} href="/agent" />
       </div>
+
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+          <p className="font-medium">No invoices yet</p>
+          <p className="mt-1 text-sm text-slate-500">Paste a project agreement and Settle drafts the PayPal invoice for you.</p>
+          <Link href="/invoices/new" className="mt-4 inline-block rounded-lg bg-[#0070ba] px-4 py-2 text-sm font-semibold text-white hover:bg-[#005ea6]">
+            Create your first invoice
+          </Link>
+        </div>
+      ) : (
+        <DashboardGrid rows={rows} />
+      )}
     </div>
   );
 }

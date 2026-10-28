@@ -28,7 +28,10 @@ interface DemoInvoice {
   dueInDays: number;
   lines: Line[];
   amountPaid?: number;
+  /** [daysAgo, amount] partial payments; must sum to amountPaid. */
+  installments?: Array<[number, number]>;
   paidDaysAgo?: number;
+  risk?: [score: number, reason: string];
   allowPartial?: boolean;
   minAmountDue?: number;
   splits?: Array<{
@@ -105,6 +108,7 @@ const invoices: DemoInvoice[] = [
     status: "SENT",
     issuedDaysAgo: 27,
     dueInDays: 3,
+    risk: [18, "Not due yet; new client with no payment history"],
     lines: [
       ["Website design & build (5 pages)", 1, 2400],
       ["Website copywriting", 1, 800],
@@ -120,6 +124,7 @@ const invoices: DemoInvoice[] = [
     status: "SENT",
     issuedDaysAgo: 40,
     dueInDays: -10,
+    risk: [46, "10 days overdue; AP pays on the 1st/15th, likely next run"],
     lines: [
       ["Design", 40, 95],
       ["Development", 30, 110],
@@ -135,6 +140,7 @@ const invoices: DemoInvoice[] = [
     status: "SENT",
     issuedDaysAgo: 65,
     dueInDays: -35,
+    risk: [82, "35 days overdue, no payments, cash-flow issues noted"],
     lines: [
       ["Intake app build (fixed fee)", 1, 8500],
       ["Hosting & security setup", 1, 750],
@@ -152,6 +158,11 @@ const invoices: DemoInvoice[] = [
     issuedDaysAgo: 21,
     dueInDays: 9,
     amountPaid: 2400,
+    installments: [
+      [14, 1200],
+      [4, 1200],
+    ],
+    risk: [22, "Paying in installments as agreed; 43% received so far"],
     allowPartial: true,
     minAmountDue: 800,
     lines: [
@@ -257,6 +268,17 @@ async function main() {
             };
           }),
         },
+        payments: {
+          create: paid
+            ? [{ amount, currency: "USD", method: "PAYPAL", paidAt: daysFromNow(-(inv.paidDaysAgo ?? 0)), isDemo: true }]
+            : (inv.installments ?? []).map(([daysAgo, value]) => ({
+                amount: value,
+                currency: "USD",
+                method: "PAYPAL",
+                paidAt: daysFromNow(-daysAgo),
+                isDemo: true,
+              })),
+        },
         agentActions: {
           create: {
             type: "SEND_INVOICE",
@@ -273,6 +295,12 @@ async function main() {
       },
     });
     invoiceIds[inv.number] = created.id;
+    if (inv.risk) {
+      // fingerprint "seed" marks a sample score; the first AI refresh replaces it.
+      await prisma.invoiceRisk.create({
+        data: { invoiceId: created.id, score: inv.risk[0], reason: inv.risk[1], fingerprint: "seed", model: null },
+      });
+    }
   }
 
   // Agent activity: one executed payout, and a few proposals awaiting approval.

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 type Tone = "success" | "error" | "info";
 interface Toast {
@@ -14,11 +14,14 @@ const ToastContext = createContext<(tone: Tone, title: string, detail?: string) 
 
 export function useToast() {
   const push = useContext(ToastContext);
-  return {
-    success: (title: string, detail?: string) => push("success", title, detail),
-    error: (title: string, detail?: string) => push("error", title, detail),
-    info: (title: string, detail?: string) => push("info", title, detail),
-  };
+  return useMemo(
+    () => ({
+      success: (title: string, detail?: string) => push("success", title, detail),
+      error: (title: string, detail?: string) => push("error", title, detail),
+      info: (title: string, detail?: string) => push("info", title, detail),
+    }),
+    [push],
+  );
 }
 
 const TONE: Record<Tone, string> = {

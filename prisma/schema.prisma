@@ -120,6 +120,8 @@ model Invoice {
   payoutSplits    PayoutSplit[]
   agentActions    AgentAction[]
   runLogs         AgentRunLog[]
+  risk            InvoiceRisk?
+  payments        InvoicePayment[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -208,6 +210,34 @@ model AgentAction {
 
   @@index([status])
   @@index([invoiceId])
+}
+
+/// A payment received on an invoice (mirrors PayPal invoice payment transactions).
+model InvoicePayment {
+  id              String    @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// PayPal payment_id; unique so re-syncing never double-counts.
+  paypalPaymentId String?   @unique
+  amount          Decimal
+  currency        String
+  method          String?
+  paidAt          DateTime
+  isDemo          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  @@index([paidAt])
+}
+
+/// Cached AI risk assessment. Recomputed only when `fingerprint` (a hash of the facts Claude saw) changes.
+model InvoiceRisk {
+  invoiceId   String   @id
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  score       Int
+  reason      String
+  fingerprint String
+  model       String?
+  updatedAt   DateTime @updatedAt
 }
 
 /// Transparency log: what the agent looked at and what it decided.
