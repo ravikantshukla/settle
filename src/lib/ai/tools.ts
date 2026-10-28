@@ -41,7 +41,7 @@ function toAiError(e: unknown): AiToolError {
   if (e instanceof Anthropic.RateLimitError) return new AiToolError("The AI service is busy right now.", undefined, "rate_limited");
   if (e instanceof Anthropic.AuthenticationError) return new AiToolError("The AI isn't configured (check ANTHROPIC_API_KEY).", undefined, "not_configured");
   if (e instanceof Anthropic.APIError) return new AiToolError(`The AI service returned an error (${e.status ?? "network"}).`, e.message, "unavailable");
-  if (e instanceof Error && /ANTHROPIC_MODEL|ANTHROPIC_API_KEY|api key/i.test(e.message)) {
+  if (e instanceof Error && /authentication method|ANTHROPIC_MODEL|ANTHROPIC_API_KEY|api key/i.test(e.message)) {
     return new AiToolError("The AI isn't configured (set ANTHROPIC_API_KEY and ANTHROPIC_MODEL).", e.message, "not_configured");
   }
   return new AiToolError("The AI is unavailable right now.", e instanceof Error ? e.message : e, "unavailable");

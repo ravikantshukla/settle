@@ -41,7 +41,7 @@ src/
 prisma/             schema.prisma + migrations (SQLite), postgres/ (generated schema + Postgres migrations), seed.ts
 scripts/            One-off / smoke-test scripts run with tsx
 docs/               Developer docs (webhooks, deployment)
-render.yaml         Render Blueprint (web + Postgres + hourly agent cron)
+render.yaml         Render Blueprint (web service; DB on Neon; hourly agent via .github/workflows/agent-cron.yml)
 ```
 
 - Import with the `@/` alias (`@/lib/paypal/...`).

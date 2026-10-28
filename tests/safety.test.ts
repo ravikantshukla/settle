@@ -147,6 +147,10 @@ describe("AI timeouts and fallbacks", () => {
     create.mockRejectedValueOnce(new Error("Missing required env var ANTHROPIC_MODEL"));
     const body = await (await extractRoute(req({ text: "x" }))).json();
     expect(body).toMatchObject({ fallback: "manual", error: expect.stringMatching(/isn't configured/) });
+    // What the SDK actually throws when ANTHROPIC_API_KEY is empty (found in the judge walkthrough).
+    create.mockRejectedValueOnce(new Error("Could not resolve authentication method. Expected one of apiKey, authToken, …"));
+    const body2 = await (await extractRoute(req({ text: "x" }))).json();
+    expect(body2.error).toMatch(/isn't configured/);
   });
 });
 
