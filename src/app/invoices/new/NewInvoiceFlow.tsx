@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useToast } from "@/components/Toast";
 import { SAMPLE_AGREEMENTS } from "@/lib/invoices/samples";
 import { invoiceTotal, type Extraction } from "@/lib/invoices/schema";
 
@@ -78,6 +79,7 @@ export function NewInvoiceFlow() {
   const [extraction, setExtraction] = useState<(Extraction & { model: string }) | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [requestId, setRequestId] = useState("");
+  const toast = useToast();
 
   const uncertain = useMemo(() => (extraction?.uncertainFields ?? []).map(normalizePath), [extraction]);
   const isUncertain = (path: string) =>
@@ -101,6 +103,7 @@ export function NewInvoiceFlow() {
       setStep({ kind: "review" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      toast.error("Couldn't draft the invoice", e instanceof Error ? e.message : String(e));
       setStep({ kind: "input" });
     }
   }
@@ -155,9 +158,11 @@ export function NewInvoiceFlow() {
         if (data.stage === "paypal_send") setRequestId(crypto.randomUUID());
         throw new Error(data.error ?? "Sending failed");
       }
+      toast.success(`Invoice ${data.number} sent via PayPal`, "The client got PayPal's invoice email.");
       setStep({ kind: "done", number: data.number, payerViewUrl: data.payerViewUrl, paypalInvoiceId: data.paypalInvoiceId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      toast.error("Invoice not sent", e instanceof Error ? e.message : String(e));
       setStep({ kind: "review" });
     }
   }
@@ -174,7 +179,7 @@ export function NewInvoiceFlow() {
     return (
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6">
         <h2 className="text-lg font-semibold text-emerald-900">Invoice {step.number} sent via PayPal</h2>
-        <p className="mt-1 text-sm text-emerald-800">PayPal emailed the client. The agent will watch it from here.</p>
+        <p className="mt-1 text-sm text-emerald-800">PayPal emailed the client. To try the full flow, open the invoice, pay it while logged in as your sandbox personal account, then click Sync with PayPal on the dashboard.</p>
         <dl className="mt-4 space-y-1 text-sm">
           <div>
             <dt className="inline text-slate-600">PayPal invoice ID: </dt>
@@ -193,7 +198,7 @@ export function NewInvoiceFlow() {
             </a>
           )}
           <Link href="/" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">
-            Back to invoices
+            Go to dashboard
           </Link>
           <button onClick={reset} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 hover:bg-white">
             Create another
@@ -346,6 +351,9 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
         {field("Client name", "client.name", <input className={inputCls("client.name")} value={form.clientName} onChange={(e) => set("clientName", e.target.value)} disabled={busy} />)}
         {field("Client email", "client.email", <input type="email" className={inputCls("client.email")} value={form.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} disabled={busy} placeholder="billing@client.com" />)}
         {field("Company", "client.company", <input className={inputCls("client.company")} value={form.clientCompany} onChange={(e) => set("clientCompany", e.target.value)} disabled={busy} />)}
+        <p className="-mt-2 text-xs text-slate-500 sm:col-span-3">
+          Sandbox tip: use your sandbox <b>personal</b> account email here so you can log in and pay the invoice.
+        </p>
         {field("Project title", "projectTitle", <input className={inputCls("projectTitle")} value={form.projectTitle} onChange={(e) => set("projectTitle", e.target.value)} disabled={busy} />)}
         {field("Due date", "dueDate", <input type="date" className={inputCls("dueDate")} value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} disabled={busy} />)}
         {field("Payment terms", "paymentTerms", <input className={inputCls("paymentTerms")} value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} disabled={busy} />)}
@@ -358,7 +366,8 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
             {field("Currency", "currency", <input className={inputCls("currency")} value={form.currency} maxLength={3} onChange={(e) => set("currency", e.target.value.toUpperCase())} disabled={busy} />)}
           </div>
         </div>
-        <table className="w-full text-sm">
+        <div className="-mx-5 overflow-x-auto px-5">
+        <table className="w-full min-w-[560px] text-sm">
           <thead className="text-left text-xs text-slate-500">
             <tr>
               <th className="pb-1 font-medium">Description</th>
@@ -416,6 +425,7 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
             </tr>
           </tfoot>
         </table>
+        </div>
         {fieldErrors.lineItems && <p className="text-xs text-red-700">{fieldErrors.lineItems}</p>}
       </section>
 

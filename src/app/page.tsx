@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OnboardingBanner } from "@/components/OnboardingBanner";
 import { RefreshRiskButton } from "@/components/RefreshRiskButton";
 import { SyncButton } from "@/components/SyncButton";
 import { money } from "@/lib/format";
@@ -6,6 +7,7 @@ import { dashboardData } from "@/lib/invoices/dashboard";
 import { DashboardGrid } from "./DashboardGrid";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: { absolute: "Dashboard · Settle" } };
 
 function Kpi({ label, value, hint, tone = "default", href }: { label: string; value: string; hint?: string; tone?: "default" | "danger" | "good" | "accent"; href?: string }) {
   const valueColor = { default: "text-slate-900", danger: "text-red-700", good: "text-emerald-700", accent: "text-[#0070ba]" }[tone];
@@ -43,6 +45,8 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      <OnboardingBanner />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label="Outstanding" value={money(kpis.totalOutstanding, c)} hint={`${rows.filter((r) => r.outstanding > 0).length} open invoice(s)`} />

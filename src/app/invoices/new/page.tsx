@@ -1,6 +1,6 @@
 import { NewInvoiceFlow } from "./NewInvoiceFlow";
 
-export const metadata = { title: "New invoice · Settle" };
+export const metadata = { title: "New invoice" };
 
 export default function NewInvoicePage() {
   return (

@@ -5,7 +5,7 @@ import { RunAgentButton } from "./RunAgentButton";
 import { Timeline, type TimelineItem } from "./Timeline";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Agent · Settle" };
+export const metadata = { title: "Agent inbox" };
 
 export default async function AgentPage() {
   const now = new Date();

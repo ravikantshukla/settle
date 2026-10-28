@@ -3,7 +3,7 @@ import { SplitEditor, type EditableInvoice } from "./SplitEditor";
 import { SubcontractorList, type SubRow } from "./SubcontractorList";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Subcontractors · Settle" };
+export const metadata = { title: "Subcontractors" };
 
 export default async function SubcontractorsPage() {
   const [subs, projects] = await Promise.all([

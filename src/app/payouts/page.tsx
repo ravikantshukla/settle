@@ -5,7 +5,7 @@ import { money } from "@/lib/format";
 import { PayoutsGrid, type PayoutRow } from "./PayoutsGrid";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Payouts · Settle" };
+export const metadata = { title: "Payouts" };
 
 const IN_FLIGHT = ["PENDING", "UNCLAIMED", "ONHOLD"];
 const PROBLEM = ["FAILED", "RETURNED", "BLOCKED", "REVERSED", "REFUNDED"];
