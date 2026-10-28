@@ -34,7 +34,8 @@ src/
     paypal/         The ONLY place that talks to PayPal (auth, invoicing, payouts, webhooks)
     ai/             Anthropic client + prompt/tool definitions (extraction, reminder drafting)
     agent/          Agent logic: inspects state, proposes AgentActions, executes approved ones
-    db/             Prisma client singleton and DB helpers
+    invoices/       Invoice domain logic: shared zod schemas, send flow, PayPal sync + webhook handling
+    db/             Prisma client singleton and DB helpers (`num()` converts Prisma Decimals)
 prisma/             schema.prisma, migrations, seed script
 scripts/            One-off / smoke-test scripts run with tsx
 docs/               Developer docs (webhooks, deployment)
@@ -55,3 +56,11 @@ docs/               Developer docs (webhooks, deployment)
 - `npm run dev` — start dev server
 - `npm run lint` — ESLint
 - `npm run build` — production build
+- `npm run db:migrate` / `npm run db:seed` / `npm run db:reset` — Prisma (SQLite locally)
+- `npm run smoke:invoice` — create + send a sandbox invoice; `npm run smoke:invoice -- <id>` shows its status
+- `npm run typecheck` — `tsc --noEmit`
+
+## Data notes
+
+- Seeded rows have `isDemo = true`. They never touch PayPal; sync, webhooks and the agent skip them.
+- Payout items are created with `sender_item_id = PayoutSplit.id` so webhook events map back to splits.

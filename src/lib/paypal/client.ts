@@ -131,6 +131,8 @@ async function fetchAccessToken(): Promise<string> {
 export interface PayPalFetchOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
+  /** Pre-serialized JSON body, sent byte-for-byte (takes precedence over `body`). */
+  rawBody?: string;
   query?: Record<string, string | number | boolean | undefined>;
   headers?: Record<string, string>;
   /** Sent as PayPal-Request-Id so retried POSTs are idempotent. */
@@ -159,14 +161,15 @@ export async function paypalFetch<T = unknown>(
       Accept: "application/json",
       ...opts.headers,
     };
-    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    const body = opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body));
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.requestId) headers["PayPal-Request-Id"] = opts.requestId;
     if (opts.preferRepresentation) headers["Prefer"] = "return=representation";
 
     return fetch(url, {
       method,
       headers,
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      body,
       cache: "no-store",
     });
   };
