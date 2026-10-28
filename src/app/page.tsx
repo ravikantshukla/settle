@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LoadDemoButton } from "@/components/LoadDemoButton";
 import { OnboardingBanner } from "@/components/OnboardingBanner";
 import { RefreshRiskButton } from "@/components/RefreshRiskButton";
 import { SyncButton } from "@/components/SyncButton";
@@ -60,9 +61,12 @@ export default async function DashboardPage() {
         <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="font-medium">No invoices yet</p>
           <p className="mt-1 text-sm text-slate-500">Paste a project agreement and Settle drafts the PayPal invoice for you.</p>
-          <Link href="/invoices/new" className="mt-4 inline-block rounded-lg bg-[#0070ba] px-4 py-2 text-sm font-semibold text-white hover:bg-[#005ea6]">
-            Create your first invoice
-          </Link>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link href="/invoices/new" className="rounded-lg bg-[#0070ba] px-4 py-2 text-sm font-semibold text-white hover:bg-[#005ea6]">
+              Create your first invoice
+            </Link>
+            {process.env.DEMO_MODE === "true" && <LoadDemoButton />}
+          </div>
         </div>
       ) : (
         <DashboardGrid rows={rows} />

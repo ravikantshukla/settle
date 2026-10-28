@@ -38,9 +38,10 @@ src/
     payouts/        Payout rows <-> PayPal payout items (shared by execution, webhook, sync)
     invoices/       Invoice domain logic: shared zod schemas, send flow, PayPal sync + webhook handling
     db/             Prisma client singleton and DB helpers (`num()` converts Prisma Decimals)
-prisma/             schema.prisma, migrations, seed script
+prisma/             schema.prisma + migrations (SQLite), postgres/ (generated schema + Postgres migrations), seed.ts
 scripts/            One-off / smoke-test scripts run with tsx
 docs/               Developer docs (webhooks, deployment)
+render.yaml         Render Blueprint (web + Postgres + hourly agent cron)
 ```
 
 - Import with the `@/` alias (`@/lib/paypal/...`).
@@ -59,6 +60,7 @@ docs/               Developer docs (webhooks, deployment)
 - `npm run lint` — ESLint
 - `npm run build` — production build
 - `npm run db:migrate` / `npm run db:seed` / `npm run db:reset` — Prisma (SQLite locally)
+- `npm run db:migrate:pg -- <name>` — matching Postgres migration for Render. **Every schema change needs both.**
 - `npm run smoke:invoice` — create + send a sandbox invoice; `npm run smoke:invoice -- <id>` shows its status
 - `npm run typecheck` — `tsc --noEmit`
 - `npm test` — Vitest (tests/); PayPal and Anthropic are always mocked, never called

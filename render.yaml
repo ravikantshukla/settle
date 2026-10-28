@@ -1,0 +1,65 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Deploy: Render Dashboard → New → Blueprint → select this repo.
+
+databases:
+  - name: settle-db
+    plan: free # free Postgres expires after 30 days; upgrade to basic-256mb to keep it
+    databaseName: settle
+    user: settle
+
+services:
+  - type: web
+    name: settle
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build:render
+    # Migrations run on every deploy before the server starts (works on all plans).
+    startCommand: npm run start:render
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: settle-db
+          property: connectionString
+      - key: PAYPAL_API_BASE
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false # set after registering the webhook (docs/deploy.md step 5)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5-5
+      - key: APP_BASE_URL
+        sync: false # e.g. https://settle.onrender.com
+      - key: CRON_SECRET
+        generateValue: true
+      - key: DEMO_MODE
+        value: "true" # judging instance: enables "Reset demo"
+
+  - type: cron
+    name: settle-agent-hourly
+    runtime: node
+    plan: starter # Render cron jobs are not available on the free plan
+    schedule: "0 * * * *"
+    buildCommand: echo "no build needed"
+    startCommand: node scripts/cron-agent.mjs
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SETTLE_URL
+        fromService:
+          type: web
+          name: settle
+          property: host
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: settle
+          envVarKey: CRON_SECRET
