@@ -44,3 +44,6 @@ next-env.d.ts
 # local sqlite database
 /prisma/*.db
 /prisma/*.db-journal
+
+# generated postgres schema for Render
+/prisma/postgres/

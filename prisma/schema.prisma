@@ -1,0 +1,218 @@
+// Settle data model.
+// Local dev uses SQLite; production (Render) uses Postgres — see docs/deploy.md.
+// Keep this schema provider-agnostic: no @db.* native types.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Mirrors PayPal Invoicing v2 invoice statuses.
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  SCHEDULED
+  PAID
+  MARKED_AS_PAID
+  CANCELLED
+  REFUNDED
+  PARTIALLY_PAID
+  PARTIALLY_REFUNDED
+  MARKED_AS_REFUNDED
+  UNPAID
+  PAYMENT_PENDING
+}
+
+/// NOT_STARTED is ours; the rest mirror PayPal Payouts item transaction_status.
+enum PayoutStatus {
+  NOT_STARTED
+  PENDING
+  UNCLAIMED
+  ONHOLD
+  SUCCESS
+  FAILED
+  RETURNED
+  BLOCKED
+  REFUNDED
+  REVERSED
+}
+
+enum AgentActionType {
+  SEND_INVOICE
+  SEND_REMINDER
+  OFFER_PAYMENT_PLAN
+  PAYOUT_SUBCONTRACTORS
+  ESCALATE
+}
+
+enum AgentActionStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  name      String
+  email     String
+  company   String?
+  notes     String?
+  isDemo    Boolean   @default(false)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([email])
+}
+
+model Subcontractor {
+  id          String        @id @default(cuid())
+  name        String
+  paypalEmail String
+  isDemo      Boolean       @default(false)
+  splits      PayoutSplit[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Project {
+  id         String    @id @default(cuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  title      String
+  /// The pasted agreement / email thread the invoice was extracted from.
+  sourceText String?
+  isDemo     Boolean   @default(false)
+  invoices   Invoice[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Invoice {
+  id              String            @id @default(cuid())
+  projectId       String
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  paypalInvoiceId String?           @unique
+  number          String            @unique
+  status          InvoiceStatus     @default(DRAFT)
+  currency        String            @default("USD")
+  amount          Decimal
+  amountPaid      Decimal           @default(0)
+  issueDate       DateTime          @default(now())
+  dueDate         DateTime?
+  paymentTerms    String?
+  note            String?
+  payerViewUrl    String?
+  allowPartial    Boolean           @default(false)
+  minAmountDue    Decimal?
+  sentAt          DateTime?
+  paidAt          DateTime?
+  lastSyncedAt    DateTime?
+  /// Seeded demo data that never touched PayPal.
+  isDemo          Boolean           @default(false)
+  lineItems       InvoiceLineItem[]
+  payoutSplits    PayoutSplit[]
+  agentActions    AgentAction[]
+  runLogs         AgentRunLog[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position    Int     @default(0)
+  description String
+  qty         Decimal
+  unitAmount  Decimal
+}
+
+/// A subcontractor's share of an invoice. Exactly one of percentage / fixedAmount is set.
+model PayoutSplit {
+  id              String        @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  subcontractorId String
+  subcontractor   Subcontractor @relation(fields: [subcontractorId], references: [id], onDelete: Restrict)
+  percentage      Decimal?
+  fixedAmount     Decimal?
+  /// Resolved amount actually sent, set when the payout is created.
+  payoutAmount    Decimal?
+  payoutBatchId   String?
+  payoutItemId    String?       @unique
+  payoutStatus    PayoutStatus  @default(NOT_STARTED)
+  paidOutAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([payoutBatchId])
+}
+
+/// Every money-moving or client-facing action. Agent proposals start as PROPOSED
+/// and only execute after a human approves them.
+model AgentAction {
+  id         String            @id @default(cuid())
+  type       AgentActionType
+  status     AgentActionStatus @default(PROPOSED)
+  invoiceId  String?
+  invoice    Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// What will be executed (e.g. reminder subject/note, payout items).
+  payload    Json
+  /// The agent's explanation, shown to the human approver.
+  reasoning  String?
+  /// PayPal response / error details after execution.
+  result     Json?
+  isDemo     Boolean           @default(false)
+  proposedAt DateTime          @default(now())
+  decidedAt  DateTime?
+  executedAt DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([status])
+  @@index([invoiceId])
+}
+
+/// Transparency log: what the agent looked at and what it decided.
+model AgentRunLog {
+  id           String   @id @default(cuid())
+  /// e.g. "scheduled", "payment_received", "manual"
+  trigger      String
+  invoiceId    String?
+  invoice      Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  observations Json
+  decision     String
+  /// IDs of AgentActions proposed during this run.
+  actionIds    Json?
+  model        String?
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model WebhookEvent {
+  id           String    @id @default(cuid())
+  /// PayPal event id (WH-...); unique for idempotency.
+  eventId      String    @unique
+  eventType    String
+  resourceType String?
+  resourceId   String?
+  payload      Json
+  verified     Boolean   @default(false)
+  error        String?
+  receivedAt   DateTime  @default(now())
+  processedAt  DateTime?
+
+  @@index([eventType])
+}
