@@ -61,6 +61,8 @@ docs/               Developer docs (webhooks, deployment)
 - `npm run db:migrate` / `npm run db:seed` / `npm run db:reset` — Prisma (SQLite locally)
 - `npm run smoke:invoice` — create + send a sandbox invoice; `npm run smoke:invoice -- <id>` shows its status
 - `npm run typecheck` — `tsc --noEmit`
+- `npm test` — Vitest (tests/); PayPal and Anthropic are always mocked, never called
+- CI (`.github/workflows/ci.yml`) runs lint + typecheck + tests on every push
 
 ## Data notes
 
