@@ -3,6 +3,7 @@
  * No server-only imports here.
  */
 import { z } from "zod";
+import { validateSplits } from "@/lib/agent/payoutShares";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
@@ -89,6 +90,13 @@ export const ReviewedInvoiceSchema = z
   .refine((v) => !v.allowPartial || v.minAmountDue === undefined || v.minAmountDue <= invoiceTotal(v.lineItems), {
     message: "Minimum partial payment cannot exceed the invoice total",
     path: ["minAmountDue"],
+  })
+  .superRefine((v, ctx) => {
+    const error = validateSplits(
+      invoiceTotal(v.lineItems),
+      v.splits.map((s) => ({ percentage: s.percentage ?? null, fixedAmount: s.fixedAmount ?? null })),
+    );
+    if (error) ctx.addIssue({ code: "custom", message: error, path: ["splits"] });
   });
 export type ReviewedInvoice = z.infer<typeof ReviewedInvoiceSchema>;
 

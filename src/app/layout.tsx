@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ToastProvider } from "@/components/Toast";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -26,12 +27,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <Link href="/invoices/new" className="text-slate-600 hover:text-slate-900">
               New invoice
             </Link>
+            <Link href="/agent" className="text-slate-600 hover:text-slate-900">
+              Agent
+            </Link>
             <span className="ml-auto rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
               PayPal sandbox
             </span>
           </nav>
         </header>
-        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+        <ToastProvider>
+          <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+        </ToastProvider>
       </body>
     </html>
   );

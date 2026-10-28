@@ -1,9 +1,10 @@
 /**
  * Process a verified PayPal webhook event, idempotently (keyed on the PayPal event id).
  */
-import { Prisma, PayoutStatus } from "@prisma/client";
+import { Prisma, type PayoutStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { PayPalWebhookEvent } from "@/lib/paypal";
+import { applyPayoutItem, toPayoutStatus } from "@/lib/payouts/records";
 import { syncInvoiceByPayPalId } from "./syncFromPayPal";
 
 const INVOICE_EVENTS = new Set([
@@ -25,7 +26,6 @@ const PAYOUT_EVENT_STATUS: Record<string, PayoutStatus> = {
   RETURNED: "RETURNED",
   UNCLAIMED: "UNCLAIMED",
 };
-const KNOWN_PAYOUT_STATUSES = new Set<string>(Object.values(PayoutStatus));
 
 export type WebhookOutcome = "processed" | "duplicate" | "ignored";
 
@@ -90,37 +90,21 @@ interface PayoutItemResource {
   transaction_status?: string;
   time_processed?: string;
   payout_item?: { sender_item_id?: string };
+  errors?: { message?: string };
 }
 
 async function applyPayoutItemEvent(event: PayPalWebhookEvent): Promise<boolean> {
   const r = event.resource as PayoutItemResource;
   const suffix = event.event_type.slice("PAYMENT.PAYOUTS-ITEM.".length);
-  const status: PayoutStatus | undefined =
-    r.transaction_status && KNOWN_PAYOUT_STATUSES.has(r.transaction_status)
-      ? (r.transaction_status as PayoutStatus)
-      : PAYOUT_EVENT_STATUS[suffix];
+  const status = toPayoutStatus(r.transaction_status) ?? PAYOUT_EVENT_STATUS[suffix];
   if (!status) return false;
-
-  // We set sender_item_id = PayoutSplit.id when creating payouts; payout_item_id is PayPal's id.
-  const split = await prisma.payoutSplit.findFirst({
-    where: {
-      OR: [
-        ...(r.payout_item_id ? [{ payoutItemId: r.payout_item_id }] : []),
-        ...(r.payout_item?.sender_item_id ? [{ id: r.payout_item.sender_item_id }] : []),
-      ],
-    },
+  // sender_item_id is our Payout.id; payout_item_id is PayPal's.
+  return applyPayoutItem({
+    payoutItemId: r.payout_item_id,
+    senderItemId: r.payout_item?.sender_item_id,
+    payoutBatchId: r.payout_batch_id,
+    status,
+    timeProcessed: r.time_processed,
+    error: r.errors?.message,
   });
-  if (!split) return false;
-
-  await prisma.payoutSplit.update({
-    where: { id: split.id },
-    data: {
-      payoutStatus: status,
-      payoutItemId: r.payout_item_id ?? split.payoutItemId,
-      payoutBatchId: r.payout_batch_id ?? split.payoutBatchId,
-      paidOutAt:
-        status === "SUCCESS" ? (r.time_processed ? new Date(r.time_processed) : new Date()) : split.paidOutAt,
-    },
-  });
-  return true;
 }

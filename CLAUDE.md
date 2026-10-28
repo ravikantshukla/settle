@@ -33,7 +33,9 @@ src/
   lib/
     paypal/         The ONLY place that talks to PayPal (auth, invoicing, payouts, webhooks)
     ai/             Anthropic client + prompt/tool definitions (extraction, reminder drafting)
-    agent/          Agent logic: inspects state, proposes AgentActions, executes approved ones
+    agent/          Agent: policy.ts (pure rules), runAgent, proposePayout, executeAction (the only
+                    path from an approved proposal to PayPal), payoutShares.ts (pure split math)
+    payouts/        Payout rows <-> PayPal payout items (shared by execution, webhook, sync)
     invoices/       Invoice domain logic: shared zod schemas, send flow, PayPal sync + webhook handling
     db/             Prisma client singleton and DB helpers (`num()` converts Prisma Decimals)
 prisma/             schema.prisma, migrations, seed script
@@ -63,4 +65,9 @@ docs/               Developer docs (webhooks, deployment)
 ## Data notes
 
 - Seeded rows have `isDemo = true`. They never touch PayPal; sync, webhooks and the agent skip them.
-- Payout items are created with `sender_item_id = PayoutSplit.id` so webhook events map back to splits.
+- One `Payout` row per PayPal payout item, `sender_item_id = Payout.id`; a split can have several payouts when the
+  client pays in installments. `PayoutSplit.payout*` fields are a summary refreshed by `refreshSplitSummary`.
+- `AgentAction.pendingKey` (`collect:<invoiceId>` / `payout:<invoiceId>`) is set while PROPOSED/APPROVED and cleared on
+  decision; its unique index prevents duplicate proposals across concurrent agent runs.
+- Demo actions execute as simulations (no PayPal call) and are labelled SIMULATED.
+- `/api/cron/agent` (Bearer `CRON_SECRET`) syncs with PayPal, then runs the agent.

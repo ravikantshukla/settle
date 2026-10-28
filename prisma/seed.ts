@@ -242,6 +242,18 @@ async function main() {
               payoutAmount: done ? payoutAmount : null,
               payoutBatchId: done ? `DEMO-BATCH-${inv.number}` : null,
               paidOutAt: done ? daysFromNow(-(inv.paidDaysAgo ?? 0) + 1) : null,
+              payouts: done
+                ? {
+                    create: {
+                      amount: payoutAmount,
+                      currency: "USD",
+                      status: "SUCCESS" as const,
+                      payoutBatchId: `DEMO-BATCH-${inv.number}`,
+                      paidOutAt: daysFromNow(-(inv.paidDaysAgo ?? 0) + 1),
+                      isDemo: true,
+                    },
+                  }
+                : undefined,
             };
           }),
         },
@@ -264,14 +276,22 @@ async function main() {
   }
 
   // Agent activity: one executed payout, and a few proposals awaiting approval.
+  const splitFor = async (number: string) =>
+    (await prisma.payoutSplit.findFirstOrThrow({ where: { invoiceId: invoiceIds[number] } })).id;
   const actions = [
     {
       invoiceId: invoiceIds["DEMO-1001"],
       type: "PAYOUT_SUBCONTRACTORS" as const,
       status: "EXECUTED" as const,
-      payload: { items: [{ name: "Chen Wei", email: subs.chen.paypalEmail, amount: "1200.00", currency: "USD" }] },
+      payload: {
+        currency: "USD",
+        invoiceAmount: 4800,
+        amountPaid: 4800,
+        explanation: "DEMO-1001 was paid in full. Chen's agreed share is 25% of $4,800 = $1,200.",
+        items: [{ splitId: await splitFor("DEMO-1001"), name: "Chen Wei", email: subs.chen.paypalEmail, amount: 1200, basis: "25% of 4800.00" }],
+      },
       reasoning: "DEMO-1001 was paid in full. Chen's agreed share is 25% of $4,800 = $1,200.",
-      result: { demo: true, payout_batch_id: "DEMO-BATCH-DEMO-1001" },
+      result: { simulated: true, payout_batch_id: "DEMO-BATCH-DEMO-1001", batch_status: "SUCCESS" },
       proposedAt: daysFromNow(-28),
       decidedAt: daysFromNow(-27),
       executedAt: daysFromNow(-27),
@@ -280,7 +300,14 @@ async function main() {
       invoiceId: invoiceIds["DEMO-1006"],
       type: "PAYOUT_SUBCONTRACTORS" as const,
       status: "PROPOSED" as const,
-      payload: { items: [{ name: "Rosa Alvarez", email: subs.rosa.paypalEmail, amount: "900.00", currency: "USD" }] },
+      pendingKey: `payout:${invoiceIds["DEMO-1006"]}`,
+      payload: {
+        currency: "USD",
+        invoiceAmount: 3000,
+        amountPaid: 3000,
+        explanation: "DEMO-1006 was paid in full 2 days ago. Rosa's share is 30% of $3,000 = $900.",
+        items: [{ splitId: await splitFor("DEMO-1006"), name: "Rosa Alvarez", email: subs.rosa.paypalEmail, amount: 900, basis: "30% of 3000.00" }],
+      },
       reasoning: "DEMO-1006 was paid in full 2 days ago. Rosa's share is 30% of $3,000 = $900.",
       proposedAt: daysFromNow(-2),
     },
@@ -288,24 +315,31 @@ async function main() {
       invoiceId: invoiceIds["DEMO-1003"],
       type: "SEND_REMINDER" as const,
       status: "PROPOSED" as const,
+      pendingKey: `collect:${invoiceIds["DEMO-1003"]}`,
       payload: {
         subject: "Friendly reminder: invoice DEMO-1003 (Portfolio site & CMS)",
-        note: "Hi Sam, a quick reminder that invoice DEMO-1003 for $6,100 was due 10 days ago. I know your AP runs on the 1st and 15th — could this go into the next run? Thanks!",
+        message:
+          "Hi Sam, a quick reminder that invoice DEMO-1003 for $7,100 was due 10 days ago. I know your AP runs on the 1st and 15th — could this go into the next run? You can pay with the PayPal link in the invoice email. Thanks!",
       },
-      reasoning: "10 days overdue. Client notes say AP runs on the 1st and 15th, so a polite nudge timed before the next run is most likely to work.",
+      reasoning:
+        "10 days overdue. Client notes say AP runs on the 1st and 15th, so a polite but firm nudge before the next run is most likely to work.",
       proposedAt: daysFromNow(0),
     },
     {
       invoiceId: invoiceIds["DEMO-1004"],
       type: "OFFER_PAYMENT_PLAN" as const,
       status: "PROPOSED" as const,
+      pendingKey: `collect:${invoiceIds["DEMO-1004"]}`,
       payload: {
         installments: 3,
-        minimumAmountDue: "3250.00",
+        minimumAmount: 3250,
+        currency: "USD",
         subject: "Option to pay invoice DEMO-1004 in installments",
-        note: "Hi Priya, I'd like to make invoice DEMO-1004 easier to manage: you can now pay it in three installments of $3,250. The PayPal link below accepts partial payments.",
+        message:
+          "Hi Priya, I'd like to make invoice DEMO-1004 ($9,750) easier to manage: you can now pay it in installments of at least $3,250 using the PayPal link in the invoice email. Let me know if a different schedule works better.",
       },
-      reasoning: "35 days overdue with no partial payment, and notes mention cash-flow issues. Two reminders went unanswered; an installment plan is more likely to recover funds than another reminder.",
+      reasoning:
+        "35 days overdue with no payment, and the client notes mention cash-flow issues. An installment plan is more likely to recover funds than another reminder.",
       proposedAt: daysFromNow(0),
     },
   ];

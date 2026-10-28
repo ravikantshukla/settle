@@ -1,14 +1,18 @@
 /**
- * Agent entry points. The agent only ever *proposes* AgentActions; humans approve them.
+ * Agent entry points. The agent only ever *proposes* AgentActions; humans approve them,
+ * and executeAction() is the only path from a proposal to PayPal.
  */
 import { prisma } from "@/lib/db";
+import { proposePayout } from "./proposePayout";
+
+export { runAgent, type RunSummary } from "./runAgent";
+export { executeAction, rejectAction, ActionStateError, type ExecuteResult } from "./executeAction";
+export { proposePayout } from "./proposePayout";
 
 export const agent = {
-  /**
-   * Called when an invoice's paid amount increases (fully or partially paid).
-   * TODO: propose PAYOUT_SUBCONTRACTORS (when fully paid) or adjust the payment plan.
-   */
+  /** Called when an invoice's paid amount increases (fully or partially paid). */
   async onPaymentReceived(invoiceId: string): Promise<void> {
+    const r = await proposePayout(invoiceId);
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
       select: { number: true, status: true, amount: true, amountPaid: true, currency: true },
@@ -25,7 +29,10 @@ export const agent = {
           amountPaid: invoice.amountPaid.toString(),
           currency: invoice.currency,
         },
-        decision: "Payment recorded. (Agent stub: no actions proposed yet.)",
+        decision: r.created
+          ? "Payment received. Proposed a subcontractor payout for approval."
+          : `Payment received. No payout proposed: ${r.reason}.`,
+        actionIds: r.created ? [r.actionId] : [],
       },
     });
   },

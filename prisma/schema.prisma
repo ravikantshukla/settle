@@ -146,16 +146,40 @@ model PayoutSplit {
   subcontractor   Subcontractor @relation(fields: [subcontractorId], references: [id], onDelete: Restrict)
   percentage      Decimal?
   fixedAmount     Decimal?
-  /// Resolved amount actually sent, set when the payout is created.
+  // Summary of the payouts made for this split (see Payout for each individual payout).
+  /// Total paid out so far (successful + in-flight payouts).
   payoutAmount    Decimal?
   payoutBatchId   String?
   payoutItemId    String?       @unique
   payoutStatus    PayoutStatus  @default(NOT_STARTED)
   paidOutAt       DateTime?
+  payouts         Payout[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   @@index([payoutBatchId])
+}
+
+/// One PayPal payout item. A split can be paid in several payouts when the client pays in installments.
+/// sender_item_id sent to PayPal = Payout.id.
+model Payout {
+  id            String       @id @default(cuid())
+  splitId       String
+  split         PayoutSplit  @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  agentActionId String?
+  amount        Decimal
+  currency      String
+  payoutBatchId String?
+  payoutItemId  String?      @unique
+  status        PayoutStatus @default(PENDING)
+  error         String?
+  isDemo        Boolean      @default(false)
+  paidOutAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([payoutBatchId])
+  @@index([status])
 }
 
 /// Every money-moving or client-facing action. Agent proposals start as PROPOSED
@@ -172,6 +196,9 @@ model AgentAction {
   reasoning  String?
   /// PayPal response / error details after execution.
   result     Json?
+  /// Set to the invoice id while PROPOSED/APPROVED, null once decided. The unique index
+  /// guarantees at most one pending action per invoice, even across concurrent agent runs.
+  pendingKey String?           @unique
   isDemo     Boolean           @default(false)
   proposedAt DateTime          @default(now())
   decidedAt  DateTime?

@@ -439,6 +439,7 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
           <p className="text-xs text-slate-500">Paid out of this invoice via PayPal Payouts after the client pays, and only once you approve.</p>
         </div>
         {form.splits.length === 0 && <p className="text-sm text-slate-500">None.</p>}
+        {fieldErrors.splits && <p className="text-xs text-red-700">{fieldErrors.splits}</p>}
         {form.splits.map((s, i) => {
           const update = (patch: Partial<typeof s>) => set("splits", form.splits.map((x, j) => (j === i ? { ...x, ...patch } : x)));
           return (

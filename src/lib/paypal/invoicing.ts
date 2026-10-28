@@ -240,6 +240,44 @@ export async function recordPayment(
   return { paymentId: res.payment_id };
 }
 
+/**
+ * Full update (PUT) of an existing invoice. PayPal replaces the invoice with `invoice`,
+ * so pass a fetched invoice with your changes applied; read-only fields are stripped here.
+ */
+export async function updateInvoice(
+  invoice: PayPalInvoice,
+  opts: { notifyRecipient?: boolean } = {},
+): Promise<PayPalInvoice> {
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  const { status, links, payments, due_amount, amount, ...rest } = invoice as PayPalInvoice & Record<string, unknown>;
+  const { metadata, ...detail } = invoice.detail;
+  /* eslint-enable @typescript-eslint/no-unused-vars */
+  delete (rest as Record<string, unknown>).refunds;
+  delete (rest as Record<string, unknown>).gratuity;
+
+  return paypalFetch<PayPalInvoice>(`${BASE}/invoices/${encodeURIComponent(invoice.id)}`, {
+    method: "PUT",
+    query: { send_to_recipient: opts.notifyRecipient ?? false, send_to_invoicer: false },
+    body: { ...rest, detail },
+    preferRepresentation: true,
+  });
+}
+
+/** Turn on partial payments for a sent invoice (used for payment plans). */
+export async function enablePartialPayment(invoiceId: string, minimumAmountDue: number): Promise<PayPalInvoice> {
+  const current = await getInvoice(invoiceId);
+  return updateInvoice({
+    ...current,
+    configuration: {
+      ...current.configuration,
+      partial_payment: {
+        allow_partial_payment: true,
+        minimum_amount_due: toMoney(minimumAmountDue, current.detail.currency_code),
+      },
+    },
+  });
+}
+
 /** Amount paid so far, as a number (0 when nothing has been paid). */
 export function paidAmountOf(invoice: PayPalInvoice): number {
   return Number(invoice.payments?.paid_amount?.value ?? 0);
