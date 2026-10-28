@@ -90,7 +90,8 @@ describe("ReviewedInvoiceSchema (what the user approves)", () => {
 describe("extractInvoice (Claude mocked)", () => {
   it("returns the validated extraction from the tool call", async () => {
     create.mockResolvedValueOnce(toolResponse(validExtraction));
-    const r = await extractInvoice("some agreement", { today: "2026-10-28" });
+    const text = "Invoice jamie@riverabakery.example; Leo (leo.park.photo@example.com) gets 40% of photography.";
+    const r = await extractInvoice(text, { today: "2026-10-28" });
     expect(r.currency).toBe("USD");
     expect(r.lineItems).toHaveLength(2);
     expect(r.uncertainFields).toEqual(["subcontractorSplits.0.fixedAmount"]);
@@ -100,7 +101,8 @@ describe("extractInvoice (Claude mocked)", () => {
     expect(req.tools[0]).toMatchObject({ name: "record_invoice_draft", strict: true });
     expect(req.tool_choice).toMatchObject({ type: "auto" });
     expect(req.messages[0].content).toContain("Invoice date (today): 2026-10-28");
-    expect(req.messages[0].content).toContain("<agreement>\nsome agreement\n</agreement>");
+    expect(req.messages[0].content).toContain(`<agreement>\n${text}\n</agreement>`);
+    expect(r.warnings).toEqual([]);
   });
 
   it("rejects empty input without calling the API", async () => {

@@ -10,7 +10,6 @@ export interface TimelineEvent {
   title: string;
   detail?: string;
   href?: string;
-  simulated?: boolean;
 }
 
 export interface InvoiceTimeline {
@@ -49,9 +48,11 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
       kind: "sent",
       at: inv.sentAt.toISOString(),
       title: "Sent via PayPal",
-      detail: `To ${inv.project.client.email}`,
+      detail:
+        inv.recipientEmail && inv.recipientEmail.toLowerCase() !== inv.project.client.email.toLowerCase()
+          ? `To ${inv.recipientEmail} (demo: routed to sandbox buyer; client email ${inv.project.client.email})`
+          : `To ${inv.recipientEmail ?? inv.project.client.email}`,
       href: inv.payerViewUrl ?? undefined,
-      simulated: inv.isDemo,
     });
   }
 
@@ -59,14 +60,12 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
     if (a.type === "SEND_INVOICE" || a.type === "PAYOUT_SUBCONTRACTORS") continue;
     const payload = (a.payload ?? {}) as { subject?: string; message?: string; minimumAmount?: number };
     const label = ACTION_LABEL[a.type] ?? a.type;
-    const simulated = (a.result as { simulated?: boolean } | null)?.simulated === true;
     if (a.status === "EXECUTED") {
       events.push({
         kind: "contact",
         at: (a.executedAt ?? a.updatedAt).toISOString(),
         title: a.type === "OFFER_PAYMENT_PLAN" ? `Payment plan offered (min ${fmt(payload.minimumAmount ?? 0, c)})` : a.type === "ESCALATE" ? "Escalated for personal follow-up" : "Reminder sent",
         detail: payload.subject,
-        simulated,
       });
     } else if (a.status === "PROPOSED") {
       events.push({ kind: "proposal", at: a.proposedAt.toISOString(), title: `Agent proposes: ${label}`, detail: a.reasoning ?? undefined });
@@ -76,7 +75,7 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
   }
 
   for (const p of inv.payments) {
-    events.push({ kind: "payment", at: p.paidAt.toISOString(), title: `Payment received: ${fmt(num(p.amount), p.currency)}`, detail: p.method ?? undefined, simulated: p.isDemo });
+    events.push({ kind: "payment", at: p.paidAt.toISOString(), title: `Payment received: ${fmt(num(p.amount), p.currency)}`, detail: p.method ?? undefined });
   }
   if (inv.paidAt && (inv.status === "PAID" || inv.status === "MARKED_AS_PAID")) {
     events.push({ kind: "paid", at: inv.paidAt.toISOString(), title: "Paid in full" });
@@ -90,7 +89,6 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
         at: (po.paidOutAt ?? po.createdAt).toISOString(),
         title: `Payout to ${split.subcontractor.name}: ${fmt(num(po.amount), po.currency)}`,
         detail: [po.status.replaceAll("_", " ").toLowerCase(), po.payoutBatchId && `batch ${po.payoutBatchId}`, po.error].filter(Boolean).join(" · "),
-        simulated: po.isDemo,
       });
     }
   }

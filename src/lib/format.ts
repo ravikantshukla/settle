@@ -13,8 +13,9 @@ export function shortDate(d: Date | string | null | undefined): string {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
-export function relativeTime(d: Date | string, now = Date.now()): string {
-  const diff = (new Date(d).getTime() - now) / 1000;
+/** `now` is the (demo) clock time from the server, as an ISO string or epoch ms. */
+export function relativeTime(d: Date | string, now: Date | string | number): string {
+  const diff = (new Date(d).getTime() - new Date(now).getTime()) / 1000;
   const abs = Math.abs(diff);
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
   if (abs < 60) return "just now";

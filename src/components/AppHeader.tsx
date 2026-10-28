@@ -21,14 +21,14 @@ export function AppHeader({ demoMode, pendingActions }: { demoMode: boolean; pen
   const [resetting, setResetting] = useState(false);
 
   async function reset() {
-    if (!window.confirm("Reset the demo? This deletes ALL invoices, actions and payouts in this app's database and reloads the sample data. PayPal sandbox data is not touched.")) return;
+    if (!window.confirm("Reset the demo? This cancels the open sandbox invoices, deletes ALL data in this app, resets the demo clock and creates fresh sandbox invoices for the sandbox buyer. It takes about 30 seconds.")) return;
     setResetting(true);
     try {
       await postJson("/api/demo/reset");
       try {
         localStorage.removeItem("settle.onboarding.dismissed");
       } catch {}
-      toast.success("Demo reset", "Sample data reloaded.");
+      toast.success("Demo reset", "Fresh invoices were created in the PayPal sandbox for your sandbox buyer.");
       router.push("/");
       router.refresh();
     } catch (e) {
@@ -57,7 +57,7 @@ export function AppHeader({ demoMode, pendingActions }: { demoMode: boolean; pen
             disabled={resetting}
             className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60 sm:order-last"
           >
-            {resetting ? "Resetting…" : "Reset demo"}
+            {resetting ? "Resetting (~30s)…" : "Reset demo"}
           </button>
         )}
         <nav className="-mx-4 order-last flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 text-sm sm:order-none sm:mx-0 sm:ml-4 sm:w-auto sm:flex-1 sm:px-0">

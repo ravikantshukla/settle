@@ -32,7 +32,6 @@ export default async function PayoutsPage() {
     batchId: p.payoutBatchId,
     itemId: p.payoutItemId,
     error: p.error,
-    isDemo: p.isDemo,
   }));
 
   const sum = (pred: (r: PayoutRow) => boolean) => rows.filter(pred).reduce((s, r) => s + r.amount, 0);

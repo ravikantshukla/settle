@@ -1,7 +1,7 @@
 /** Load invoices with everything the agent needs, and derive policy facts + Claude context. */
 import type { Prisma } from "@prisma/client";
 import { num, prisma } from "@/lib/db";
-import { COLLECTION_ACTIONS, daysOverdue, DAY_MS, hasHardshipSignal, type InvoiceFacts } from "./policy";
+import { COLLECTION_ACTIONS, daysOverdue, DAY_MS, hasHardshipSignal, type InvoiceFacts, type Stage } from "./policy";
 
 export const agentInvoiceInclude = {
   project: { include: { client: true } },
@@ -39,7 +39,11 @@ export function factsFor(inv: AgentInvoice): InvoiceFacts {
     lastContactAt: contacts.at(-1)?.at ?? null,
     reminderCount: contacts.filter((c) => c.type === "SEND_REMINDER").length,
     planOffered: contacts.some((c) => c.type === "OFFER_PAYMENT_PLAN"),
-    hasPendingAction: collection.some((a) => a.status === "PROPOSED" || a.status === "APPROVED"),
+    pendingAction: (() => {
+      const pending = collection.find((a) => a.status === "PROPOSED" || a.status === "APPROVED");
+      if (!pending) return null;
+      return { type: pending.type, stage: ((pending.payload as { stage?: Stage } | null)?.stage ?? null) as Stage | null };
+    })(),
     lastRejectedAt: rejected.length ? new Date(Math.max(...rejected.map((d) => d.getTime()))) : null,
     hardshipSignal: hasHardshipSignal(inv.project.client.notes),
   };

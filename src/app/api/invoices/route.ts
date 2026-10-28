@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json(await sendNewInvoice(parsed.data));
   } catch (e) {
     if (e instanceof SendInvoiceError) {
-      return NextResponse.json({ error: e.message, stage: e.stage, invoiceId: e.invoiceId }, { status: 502 });
+      return NextResponse.json({ error: e.message, stage: e.stage, invoiceId: e.invoiceId }, { status: e.stage === "config" ? 400 : 502 });
     }
     console.error("send invoice failed", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "Sending failed" }, { status: 500 });

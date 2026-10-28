@@ -104,7 +104,6 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null;
                     <span className={`absolute -left-[25px] top-1.5 h-2.5 w-2.5 rounded-full ${DOT[e.kind]}`} />
                     <p className="text-sm font-medium">
                       {e.title}
-                      {e.simulated && <span className="ml-1.5 rounded bg-violet-100 px-1 py-px text-[10px] font-semibold text-violet-800">SIMULATED</span>}
                     </p>
                     <p className="text-xs text-slate-500">{shortDate(e.at)}</p>
                     {e.detail && <p className="mt-0.5 text-sm text-slate-600">{e.detail}</p>}

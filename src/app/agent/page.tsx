@@ -1,3 +1,4 @@
+import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { daysOverdue } from "@/lib/agent/policy";
 import { ActionCard, type InboxAction } from "./ActionCard";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Agent inbox" };
 
 export default async function AgentPage() {
-  const now = new Date();
+  const now = await clock.now();
   const [pending, decided, runs] = await Promise.all([
     prisma.agentAction.findMany({
       where: { status: { in: ["PROPOSED", "APPROVED"] } },
@@ -94,7 +95,7 @@ export default async function AgentPage() {
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             {inbox.map((a) => (
-              <ActionCard key={a.id} action={a} />
+              <ActionCard key={a.id} action={a} now={now.toISOString()} />
             ))}
           </div>
         )}
@@ -102,7 +103,7 @@ export default async function AgentPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Activity</h2>
-        <Timeline items={timeline} />
+        <Timeline items={timeline} now={now.toISOString()} />
       </section>
     </div>
   );

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
-import { refreshRiskScores } from "@/lib/agent/risk";
+import { refreshRiskReasons } from "@/lib/agent/risk";
 import { syncOpenInvoices } from "@/lib/invoices/syncFromPayPal";
 import { syncOpenPayouts } from "@/lib/payouts/records";
 
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     const invoices = await syncOpenInvoices();
     const payouts = await syncOpenPayouts();
     const run = await runAgent("scheduled");
-    const risk = await refreshRiskScores().catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    const risk = await refreshRiskReasons().catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
     return NextResponse.json({ sync: { invoices, payouts }, run, risk });
   } catch (e) {
     console.error("scheduled agent run failed", e);

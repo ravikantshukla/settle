@@ -15,7 +15,7 @@ Thanks for the call yesterday. Confirming what we agreed:
 - Product photography for 24 items — you said Leo Park would shoot these and he gets 40% of the photography line. Flat $1,200 for the shoot.
 - 2 rounds of revisions included.
 
-Please invoice Rivera Bakery LLC, attention me. We usually pay net 15.
+Please invoice Rivera Bakery LLC, attention me, and make it due within 5 days so it lands in this month's books.
 
 Jamie
 

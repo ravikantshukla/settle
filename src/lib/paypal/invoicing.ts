@@ -231,6 +231,8 @@ export async function recordPayment(
       method: "POST",
       body: {
         method: input.method,
+        // PayPal rejects future payment dates, so this is the real date, not the demo clock.
+        // eslint-disable-next-line no-restricted-syntax
         payment_date: input.paymentDate ?? new Date().toISOString().slice(0, 10),
         amount: toMoney(input.amount, input.currency),
         note: input.note,

@@ -8,6 +8,7 @@ const p2002 = () => new Prisma.PrismaClientKnownRequestError("Unique constraint 
 
 vi.mock("@/lib/db", () => ({
   prisma: {
+    appSetting: { findUnique: vi.fn(async () => null) }, // demo clock offset
     webhookEvent: {
       findUnique: vi.fn(async ({ where }: { where: { eventId: string } }) => store.get(where.eventId) ?? null),
       create: vi.fn(async ({ data }: { data: Row }) => {

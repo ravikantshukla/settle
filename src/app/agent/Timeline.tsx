@@ -33,7 +33,7 @@ const TRIGGER_LABEL: Record<string, string> = {
   payment_received: "Payment received",
 };
 
-export function Timeline({ items }: { items: TimelineItem[] }) {
+export function Timeline({ items, now }: { items: TimelineItem[]; now: string }) {
   if (!items.length) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-sm text-slate-500">
@@ -51,7 +51,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
             }`}
           />
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">
-            {item.kind === "run" ? <RunEntry item={item} /> : <ActionEntry item={item} />}
+            {item.kind === "run" ? <RunEntry item={item} now={now} /> : <ActionEntry item={item} now={now} />}
           </div>
         </li>
       ))}
@@ -59,12 +59,12 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
   );
 }
 
-function RunEntry({ item }: { item: Extract<TimelineItem, { kind: "run" }> }) {
+function RunEntry({ item, now }: { item: Extract<TimelineItem, { kind: "run" }>; now: string }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{TRIGGER_LABEL[item.trigger] ?? item.trigger}</span>
-        <span className="text-xs text-slate-400">{relativeTime(item.at)}</span>
+        <span className="text-xs text-slate-400">{relativeTime(item.at, now)}</span>
         {item.model && <span className="ml-auto text-xs text-slate-400">{item.model}</span>}
       </div>
       <p className="mt-1 text-slate-700">{item.decision}</p>
@@ -90,7 +90,7 @@ function RunEntry({ item }: { item: Extract<TimelineItem, { kind: "run" }> }) {
   );
 }
 
-function ActionEntry({ item }: { item: Extract<TimelineItem, { kind: "action" }> }) {
+function ActionEntry({ item, now }: { item: Extract<TimelineItem, { kind: "action" }>; now: string }) {
   const r = item.result ?? {};
   const verb = item.status === "EXECUTED" ? "Executed" : item.status === "FAILED" ? "Failed" : "Rejected";
   return (
@@ -100,9 +100,8 @@ function ActionEntry({ item }: { item: Extract<TimelineItem, { kind: "action" }>
           {verb}: {ACTION_LABEL[item.type] ?? item.type}
           {item.invoiceNumber && <span className="font-normal text-slate-600"> · {item.invoiceNumber}</span>}
         </span>
-        {r.simulated === true && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">SIMULATED</span>}
         {r.editedByUser === true && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">EDITED</span>}
-        <span className="text-xs text-slate-400">{relativeTime(item.at)}</span>
+        <span className="text-xs text-slate-400">{relativeTime(item.at, now)}</span>
       </div>
       {item.subject && <p className="mt-1 text-slate-600">“{item.subject}”</p>}
       {typeof r.payout_batch_id === "string" && (

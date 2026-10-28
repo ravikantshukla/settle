@@ -13,11 +13,13 @@ export function RefreshRiskButton() {
   async function refresh() {
     setBusy(true);
     try {
-      const r = await postJson<{ open: number; rescored: number; upToDate: number }>("/api/risk/refresh");
-      toast.success(
-        r.rescored ? `AI re-scored ${r.rescored} invoice(s)` : "Risk scores are up to date",
-        `${r.upToDate} unchanged since their last score (cached).`,
-      );
+      const r = await postJson<{ open: number; rewritten: number; upToDate: number; fallback: boolean }>("/api/risk/refresh");
+      if (r.fallback) toast.info("AI unavailable: risk reasons use rule text for now", "Scores always come from the rules.");
+      else
+        toast.success(
+          r.rewritten ? `AI rewrote ${r.rewritten} risk reason(s)` : "Risk reasons are up to date",
+          `${r.upToDate} unchanged since their state last changed (cached).`,
+        );
       router.refresh();
     } catch (e) {
       toast.error("Risk refresh failed", e instanceof Error ? e.message : String(e));
@@ -28,7 +30,7 @@ export function RefreshRiskButton() {
 
   return (
     <button onClick={refresh} disabled={busy} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-60">
-      {busy ? "Scoring…" : "Refresh AI risk"}
+      {busy ? "Updating…" : "Refresh risk reasons"}
     </button>
   );
 }

@@ -20,7 +20,6 @@ export interface PayoutRow {
   batchId: string | null;
   itemId: string | null;
   error: string | null;
-  isDemo: boolean;
 }
 
 function RecipientCell({ data }: ICellRendererParams<PayoutRow>) {
@@ -38,7 +37,6 @@ function StatusCell({ data }: ICellRendererParams<PayoutRow>) {
   return (
     <span className="flex items-center gap-1.5" title={data.error ?? undefined}>
       <StatusPill status={data.status} />
-      {data.isDemo && <span className="rounded bg-violet-100 px-1 py-px text-[10px] font-semibold text-violet-800">SIMULATED</span>}
     </span>
   );
 }
@@ -73,6 +71,7 @@ export function PayoutsGrid({ rows }: { rows: PayoutRow[] }) {
 
   function exportCsv() {
     apiRef.current?.exportDataAsCsv({
+      // eslint-disable-next-line no-restricted-syntax -- download filename only
       fileName: `settle-payouts-${new Date().toISOString().slice(0, 10)}.csv`,
       columnKeys: ["date", "subcontractor", "email", "invoice", "client", "amount", "status", "batchId", "itemId", "error"],
     });

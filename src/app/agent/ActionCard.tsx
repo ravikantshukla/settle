@@ -29,13 +29,14 @@ export interface InboxAction {
 interface PayoutItem {
   name: string;
   email: string;
+  routedFrom?: string;
   amount: number;
   basis: string;
 }
 
 const CLIENT_FACING = new Set(["SEND_REMINDER", "OFFER_PAYMENT_PLAN"]);
 
-export function ActionCard({ action, compact = false }: { action: InboxAction; compact?: boolean }) {
+export function ActionCard({ action, now, compact = false }: { action: InboxAction; now: string; compact?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const p = action.payload;
@@ -60,8 +61,8 @@ export function ActionCard({ action, compact = false }: { action: InboxAction; c
             ...(action.type === "OFFER_PAYMENT_PLAN" && Number(minimum) !== p.minimumAmount && { minimumAmount: Number(minimum) }),
           }
         : undefined;
-      const r = await postJson<{ message: string; simulated: boolean }>(`/api/agent/actions/${action.id}/approve`, { edits });
-      toast.success(r.simulated ? "Done (demo data — simulated, PayPal not called)" : "Done via PayPal", r.message);
+      const r = await postJson<{ message: string }>(`/api/agent/actions/${action.id}/approve`, { edits });
+      toast.success("Done via PayPal", r.message);
       router.refresh();
     } catch (e) {
       toast.error(`${ACTION_LABEL[action.type] ?? action.type} failed`, e instanceof Error ? e.message : String(e));
@@ -98,7 +99,7 @@ export function ActionCard({ action, compact = false }: { action: InboxAction; c
           </span>
         )}
         {action.isDemo && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">DEMO</span>}
-        <span className="ml-auto text-xs text-slate-400">{relativeTime(action.proposedAt)}</span>
+        <span className="ml-auto text-xs text-slate-400">{relativeTime(action.proposedAt, now)}</span>
       </header>
 
       <div className="flex-1 space-y-3 px-4 py-3 text-sm">
@@ -158,6 +159,7 @@ export function ActionCard({ action, compact = false }: { action: InboxAction; c
                   <td className="py-1.5">
                     <div className="font-medium">{it.name}</div>
                     <div className="text-xs text-slate-500">{it.email} · {it.basis}</div>
+                    {it.routedFrom && <div className="text-[11px] text-amber-700">demo: routed to sandbox account (original {it.routedFrom})</div>}
                   </td>
                   <td className="py-1.5 text-right font-semibold tabular-nums">{money(it.amount, currency)}</td>
                 </tr>

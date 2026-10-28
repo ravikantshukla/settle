@@ -1,6 +1,8 @@
+import { isDemoMode } from "@/lib/demo/routing";
 import { NewInvoiceFlow } from "./NewInvoiceFlow";
 
 export const metadata = { title: "New invoice" };
+export const dynamic = "force-dynamic";
 
 export default function NewInvoicePage() {
   return (
@@ -12,7 +14,7 @@ export default function NewInvoicePage() {
           you approve.
         </p>
       </div>
-      <NewInvoiceFlow />
+      <NewInvoiceFlow demo={isDemoMode() ? { buyerEmail: process.env.SANDBOX_BUYER_EMAIL ?? "" } : null} />
     </div>
   );
 }

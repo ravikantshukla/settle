@@ -29,6 +29,8 @@ export const PayoutPayload = z.object({
         email: z.string().email(),
         amount: z.number().positive(),
         basis: z.string(),
+        /** DEMO_MODE: the subcontractor's real email when the payout was routed to a sandbox account. */
+        routedFrom: z.string().optional(),
       }),
     )
     .min(1),

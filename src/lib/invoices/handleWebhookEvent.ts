@@ -1,6 +1,7 @@
 /**
  * Process a verified PayPal webhook event, idempotently (keyed on the PayPal event id).
  */
+import { clock } from "@/lib/clock";
 import { Prisma, type PayoutStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { PayPalWebhookEvent } from "@/lib/paypal";
@@ -65,7 +66,7 @@ export async function handleWebhookEvent(event: PayPalWebhookEvent): Promise<Web
     }
     await prisma.webhookEvent.update({
       where: { eventId: event.id },
-      data: { processedAt: new Date(), error: null },
+      data: { processedAt: await clock.now(), error: null },
     });
     return outcome;
   } catch (e) {

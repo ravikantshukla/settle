@@ -2,9 +2,11 @@
  * Propose a PAYOUT_SUBCONTRACTORS action for what subcontractors have earned on an invoice so far.
  * Never pays anything; execution happens only after approval (see executeAction).
  */
+import { clock } from "@/lib/clock";
 import { Prisma } from "@prisma/client";
 import { explainPayout } from "@/lib/ai/payoutExplanation";
 import { num, prisma } from "@/lib/db";
+import { payoutRecipient } from "@/lib/demo/routing";
 import { COMMITTED_PAYOUT_STATUSES } from "@/lib/payouts/records";
 import { agentInvoiceInclude, payoutKey, type AgentInvoice } from "./context";
 import type { PayoutPayload } from "./payloads";
@@ -30,12 +32,14 @@ export function payoutItemsFor(inv: AgentInvoice): PayoutPayload["items"] {
   );
   return shares.map((share) => {
     const split = inv.payoutSplits.find((s) => s.id === share.splitId)!;
+    const to = payoutRecipient(split.subcontractor.paypalEmail, split.subcontractor.id);
     return {
       splitId: split.id,
       name: split.subcontractor.name,
-      email: split.subcontractor.paypalEmail,
+      email: to.email,
       amount: share.due,
       basis: share.basis,
+      ...(to.routed && { routedFrom: split.subcontractor.paypalEmail }),
     };
   });
 }
@@ -62,7 +66,7 @@ export async function proposePayout(invoiceId: string): Promise<ProposeResult> {
     }
     await prisma.agentAction.updateMany({
       where: { id: pending.id, status: "PROPOSED" },
-      data: { status: "REJECTED", decidedAt: new Date(), pendingKey: null, result: { superseded: true, reason: "A new payment changed the amounts due." } },
+      data: { status: "REJECTED", decidedAt: await clock.now(), pendingKey: null, result: { superseded: true, reason: "A new payment changed the amounts due." } },
     });
   }
 
@@ -98,6 +102,7 @@ export async function proposePayout(invoiceId: string): Promise<ProposeResult> {
         reasoning: explanation,
         isDemo: inv.isDemo,
         pendingKey: payoutKey(inv.id),
+        proposedAt: await clock.now(),
       },
     });
     return { created: true, actionId: action.id };

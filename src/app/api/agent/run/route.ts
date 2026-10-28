@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 /** Manual "Run agent now" from the UI. */
-export async function POST() {
+export async function POST(req: Request) {
+  const limited = rateLimited(req);
+  if (limited) return limited;
   try {
     return NextResponse.json(await runAgent("manual"));
   } catch (e) {

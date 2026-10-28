@@ -2,6 +2,7 @@
  * Mirror PayPal invoice state into the DB. Shared by the webhook handler and the manual sync,
  * so both paths behave identically.
  */
+import { clock } from "@/lib/clock";
 import { InvoiceStatus, type Invoice } from "@prisma/client";
 import { agent } from "@/lib/agent";
 import { num, prisma } from "@/lib/db";
@@ -30,8 +31,8 @@ export async function applyPayPalInvoice(local: Invoice, remote: PayPalInvoice):
     status,
     amountPaid,
     payerViewUrl: local.payerViewUrl ?? remote.detail.metadata?.recipient_view_url ?? null,
-    paidAt: fullyPaid ? (local.paidAt ?? (lastPayment ? new Date(lastPayment) : new Date())) : local.paidAt,
-    lastSyncedAt: new Date(),
+    paidAt: fullyPaid ? (local.paidAt ?? (lastPayment ? await clock.fromReal(lastPayment) : await clock.now())) : local.paidAt,
+    lastSyncedAt: await clock.now(),
   };
   const changed = status !== local.status || amountPaid !== previousPaid;
 
@@ -46,7 +47,7 @@ export async function applyPayPalInvoice(local: Invoice, remote: PayPalInvoice):
         amount: Number(tx.amount.value),
         currency: tx.amount.currency_code,
         method: tx.method ?? null,
-        paidAt: tx.payment_date ? new Date(tx.payment_date) : new Date(),
+        paidAt: tx.payment_date ? await clock.fromReal(tx.payment_date) : await clock.now(),
       },
       update: {},
     });
@@ -73,7 +74,7 @@ export async function applyPayPalInvoice(local: Invoice, remote: PayPalInvoice):
 /** Fetch one invoice from PayPal by its PayPal id and apply it. Returns null if we don't track it. */
 export async function syncInvoiceByPayPalId(paypalInvoiceId: string): Promise<ApplyResult | null> {
   const local = await prisma.invoice.findUnique({ where: { paypalInvoiceId } });
-  if (!local || local.isDemo) return null;
+  if (!local) return null;
   return applyPayPalInvoice(local, await getInvoice(paypalInvoiceId));
 }
 
@@ -88,7 +89,6 @@ export interface SyncSummary {
 export async function syncOpenInvoices(): Promise<SyncSummary> {
   const open = await prisma.invoice.findMany({
     where: {
-      isDemo: false,
       paypalInvoiceId: { not: null },
       status: { notIn: TERMINAL_STATUSES as InvoiceStatus[] },
     },

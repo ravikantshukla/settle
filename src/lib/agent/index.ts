@@ -2,6 +2,7 @@
  * Agent entry points. The agent only ever *proposes* AgentActions; humans approve them,
  * and executeAction() is the only path from a proposal to PayPal.
  */
+import { clock } from "@/lib/clock";
 import { prisma } from "@/lib/db";
 import { proposePayout } from "./proposePayout";
 
@@ -20,6 +21,7 @@ export const agent = {
     if (!invoice) return;
     await prisma.agentRunLog.create({
       data: {
+        createdAt: await clock.now(),
         trigger: "payment_received",
         invoiceId,
         observations: {

@@ -21,6 +21,7 @@ export async function GET() {
     ai: configured("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL") ? "configured" : "missing",
     cron: configured("CRON_SECRET") ? "configured" : "missing",
     demoMode: process.env.DEMO_MODE === "true",
+    // eslint-disable-next-line no-restricted-syntax -- server wall-clock for ops
     time: new Date().toISOString(),
   };
   return NextResponse.json(body, { status: body.ok ? 200 : 503 });

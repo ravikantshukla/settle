@@ -64,6 +64,8 @@ let cachedToken: { value: string; expiresAt: number } | null = null;
 let inflightToken: Promise<string> | null = null;
 
 export async function getAccessToken(): Promise<string> {
+  // Real time on purpose: token expiry is a real-world timer, not business logic.
+  // eslint-disable-next-line no-restricted-syntax
   if (cachedToken && Date.now() < cachedToken.expiresAt - EXPIRY_SKEW_MS) {
     return cachedToken.value;
   }
@@ -119,6 +121,7 @@ async function fetchAccessToken(): Promise<string> {
 
   cachedToken = {
     value: body.access_token,
+    // eslint-disable-next-line no-restricted-syntax -- real-world token expiry
     expiresAt: Date.now() + (body.expires_in ?? 0) * 1000,
   };
   return body.access_token;

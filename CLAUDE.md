@@ -80,10 +80,13 @@ render.yaml         Render Blueprint (web + Postgres + hourly agent cron)
 
 ## Data notes
 
-- Seeded rows have `isDemo = true`. They never touch PayPal; sync, webhooks and the agent skip them.
+- Demo data = REAL PayPal sandbox invoices (`src/lib/demo/seed.ts`), all due in the future; overdue states come from
+  the demo clock (`src/lib/clock.ts`, offset in `AppSetting`). `isDemo = true` only marks seeded rows for a badge.
 - One `Payout` row per PayPal payout item, `sender_item_id = Payout.id`; a split can have several payouts when the
   client pays in installments. `PayoutSplit.payout*` fields are a summary refreshed by `refreshSplitSummary`.
 - `AgentAction.pendingKey` (`collect:<invoiceId>` / `payout:<invoiceId>`) is set while PROPOSED/APPROVED and cleared on
   decision; its unique index prevents duplicate proposals across concurrent agent runs.
-- Demo actions execute as simulations (no PayPal call) and are labelled SIMULATED.
+- Rules (`agent/policy.ts`) decide stage, action, tone and the 0–100 risk score. Claude only writes wording and
+  one-line reasons; every AI call has a template/rule fallback.
+- ESLint forbids `new Date()` / `Date.now()` in `src/` (use `clock.now()`); real-world timers carry an explicit disable.
 - `/api/cron/agent` (Bearer `CRON_SECRET`) syncs with PayPal, then runs the agent.

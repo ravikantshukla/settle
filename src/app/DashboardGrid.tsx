@@ -58,7 +58,7 @@ function RiskCell({ data }: ICellRendererParams<Row>) {
   if (!data || isTotal(data) || !data.risk) {
     return data && !isTotal(data) && data.outstanding ? <span className="text-xs text-slate-400">Not scored yet</span> : null;
   }
-  const { score, reason, sample } = data.risk;
+  const { score, reason, aiReason } = data.risk;
   const tone = score >= 70 ? "bg-red-500" : score >= 40 ? "bg-amber-500" : "bg-emerald-500";
   return (
     <div className="flex flex-col justify-center gap-1 leading-tight" title={reason}>
@@ -67,7 +67,7 @@ function RiskCell({ data }: ICellRendererParams<Row>) {
         <span className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
           <span className={`block h-full ${tone}`} style={{ width: `${score}%` }} />
         </span>
-        {sample && <span className="text-[10px] font-medium text-slate-400">sample</span>}
+        <span className="text-[10px] font-medium text-slate-400" title={aiReason ? "Score from rules; reason written by AI" : "Score and reason from rules"}>{aiReason ? "AI reason" : "rules"}</span>
       </div>
       <span className="truncate text-xs text-slate-500">{reason}</span>
     </div>
@@ -142,8 +142,8 @@ export function DashboardGrid({ rows }: { rows: DashboardRow[] }) {
       async decide(actionId, kind, invoiceNumber) {
         try {
           if (kind === "approve") {
-            const r = await postJson<{ message: string; simulated: boolean }>(`/api/agent/actions/${actionId}/approve`, {});
-            toast.success(r.simulated ? `${invoiceNumber}: done (demo, simulated)` : `${invoiceNumber}: done via PayPal`, r.message);
+            const r = await postJson<{ message: string }>(`/api/agent/actions/${actionId}/approve`, {});
+            toast.success(`${invoiceNumber}: done via PayPal`, r.message);
           } else {
             await postJson(`/api/agent/actions/${actionId}/reject`, {});
             toast.info(`${invoiceNumber}: proposal rejected`);
@@ -272,6 +272,7 @@ export function DashboardGrid({ rows }: { rows: DashboardRow[] }) {
 
   function exportCsv() {
     apiRef.current?.exportDataAsCsv({
+      // eslint-disable-next-line no-restricted-syntax -- download filename only
       fileName: `settle-receivables-${new Date().toISOString().slice(0, 10)}.csv`,
       columnKeys: ["client", "number", "status", "amount", "paid", "outstanding", "dueDate", "daysOverdue", "bucket", "risk", "riskReason", "nextAction"],
       skipPinnedBottom: true,

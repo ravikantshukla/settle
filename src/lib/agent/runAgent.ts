@@ -1,14 +1,18 @@
 /**
- * One agent run: rules pick the invoices that need attention, Claude decides and writes,
- * and every decision becomes a PROPOSED AgentAction. Nothing is executed here.
+ * One agent run: rules pick the invoices that need attention AND the action + tone; Claude writes
+ * the wording (template fallback if the AI is unavailable). Every decision becomes a PROPOSED
+ * AgentAction. Nothing is executed here.
  */
 import { Prisma } from "@prisma/client";
-import { decideCollectionAction } from "@/lib/ai/collectionDecision";
+import { templateMessage, writeCollectionMessage, type Draft } from "@/lib/ai/collectionDecision";
+import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
+import { money, shortDate } from "@/lib/format";
 import { agentInvoiceInclude, claudeFacts, clientHistories, collectKey, factsFor, type AgentInvoice } from "./context";
 import type { PaymentPlanPayload } from "./payloads";
-import { assessInvoice, COLLECTIBLE_STATUSES, suggestedMinimum, type Assessment } from "./policy";
+import { assessInvoice, COLLECTIBLE_STATUSES, COLLECTION_ACTIONS, suggestedMinimum, type Assessment } from "./policy";
 import { payoutItemsFor, proposePayout } from "./proposePayout";
+import { refreshRiskReasons } from "./risk";
 
 export interface RunSummary {
   runId: string;
@@ -45,63 +49,82 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function proposeCollection(
   inv: AgentInvoice,
-  assessment: Extract<Assessment, { attention: true }>,
+  a: Extract<Assessment, { attention: true }>,
   facts: ReturnType<typeof claudeFacts>,
+  now: Date,
 ): Promise<{ actionId?: string; verdict: string; model?: string }> {
-  const minimum = suggestedMinimum(assessment.outstanding);
-  const { decision, model } = await decideCollectionAction({
-    stage: assessment.stage,
-    allowedActions: assessment.allowedActions as Array<"SEND_REMINDER" | "OFFER_PAYMENT_PLAN" | "ESCALATE">,
-    facts,
-    suggestedMinimum: minimum,
-  });
+  const planMinimum = a.action === "OFFER_PAYMENT_PLAN" ? suggestedMinimum(a.outstanding) : undefined;
 
-  if (decision.action === "NONE") return { verdict: `AI chose no action: ${decision.reasoning}`, model };
-  if (!decision.message || (decision.action !== "ESCALATE" && !decision.subject)) {
-    throw new Error(`AI proposed ${decision.action} without a message`);
+  let draft: Draft;
+  let model: string | undefined;
+  try {
+    ({ draft, model } = await writeCollectionMessage({ action: a.action, tone: a.tone, stage: a.stage, facts, planMinimum }));
+  } catch (e) {
+    console.warn(`AI wording failed for ${inv.number}; using template: ${errorText(e)}`);
+    draft = templateMessage({
+      action: a.action,
+      tone: a.tone,
+      number: inv.number,
+      clientName: inv.project.client.name,
+      amountText: money(a.outstanding, inv.currency),
+      daysOverdue: a.daysOverdue,
+      dueDateText: shortDate(inv.dueDate),
+      planMinimumText: planMinimum ? money(planMinimum, inv.currency) : undefined,
+      reason: a.reason,
+    });
   }
 
+  // `stage` and `tone` are stored so a later run can tell whether this proposal still fits.
   let payload: Prisma.InputJsonValue;
-  if (decision.action === "OFFER_PAYMENT_PLAN") {
-    const proposed = decision.paymentPlan?.minimumAmount ?? minimum;
-    const plan: PaymentPlanPayload = {
-      subject: decision.subject!,
-      message: decision.message,
+  if (a.action === "OFFER_PAYMENT_PLAN") {
+    const plan: PaymentPlanPayload & { stage: string; tone: string } = {
+      subject: draft.subject!,
+      message: draft.message,
       currency: inv.currency,
-      installments: Math.min(12, Math.max(2, decision.paymentPlan?.installments ?? 3)),
-      // Keep the minimum sensible even if the model drifts.
-      minimumAmount: proposed > 0 && proposed <= assessment.outstanding ? Math.round(proposed * 100) / 100 : minimum,
+      installments: 3,
+      minimumAmount: planMinimum!,
+      stage: a.stage,
+      tone: a.tone,
     };
     payload = plan;
-  } else if (decision.action === "ESCALATE") {
-    payload = { message: decision.message };
+  } else if (a.action === "ESCALATE") {
+    payload = { message: draft.message, stage: a.stage, tone: a.tone };
   } else {
-    payload = { subject: decision.subject!, message: decision.message };
+    payload = { subject: draft.subject!, message: draft.message, stage: a.stage, tone: a.tone };
+  }
+
+  // A stale pending proposal (the invoice escalated since) is superseded, never stacked.
+  if (a.supersedes) {
+    await prisma.agentAction.updateMany({
+      where: { invoiceId: inv.id, type: { in: COLLECTION_ACTIONS }, status: "PROPOSED" },
+      data: { status: "REJECTED", decidedAt: now, pendingKey: null, result: { superseded: true, reason: `Situation changed: now ${a.stage}.` } },
+    });
   }
 
   try {
     const action = await prisma.agentAction.create({
       data: {
-        type: decision.action,
+        type: a.action,
         invoiceId: inv.id,
         payload,
-        reasoning: decision.reasoning,
+        reasoning: draft.reasoning,
         isDemo: inv.isDemo,
         pendingKey: collectKey(inv.id),
+        proposedAt: now,
       },
     });
-    return { actionId: action.id, verdict: `proposed ${decision.action}`, model };
+    return { actionId: action.id, verdict: `proposed ${a.action} (${a.tone})${a.supersedes ? ", replacing an outdated proposal" : ""}`, model };
   } catch (e) {
-    // Another run created a proposal for this invoice in the meantime.
+    // Another run created a proposal for this invoice in the meantime (or one is APPROVED and executing).
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return { verdict: "skipped: proposal created concurrently", model };
+      return { verdict: "skipped: a proposal already exists", model };
     }
     throw e;
   }
 }
 
 export async function runAgent(trigger: string): Promise<RunSummary> {
-  const now = new Date();
+  const now = await clock.now();
   const invoices = await prisma.invoice.findMany({
     where: { OR: [{ status: { in: COLLECTIBLE_STATUSES } }, { amountPaid: { gt: 0 }, payoutSplits: { some: {} } }] },
     include: agentInvoiceInclude,
@@ -134,7 +157,7 @@ export async function runAgent(trigger: string): Promise<RunSummary> {
     const base = { invoice: inv.number, daysOverdue: assessment.daysOverdue, outstanding: assessment.outstanding };
     try {
       const facts = claudeFacts(inv, histories.get(inv.project.clientId)?.(inv.id), now);
-      const r = await proposeCollection(inv, assessment, facts);
+      const r = await proposeCollection(inv, assessment, facts, now);
       if (r.model) models.add(r.model);
       return { ...base, verdict: `${assessment.stage} (${assessment.reason}) → ${r.verdict}`, actionId: r.actionId };
     } catch (e) {
@@ -172,8 +195,16 @@ export async function runAgent(trigger: string): Promise<RunSummary> {
           .join(" ")
       : `Checked ${collectible.length} open invoice(s); nothing needs action right now.`;
 
+  // Risk reasons: regenerated only for invoices whose state changed (cached otherwise).
+  try {
+    await refreshRiskReasons();
+  } catch (e) {
+    observations.push({ invoice: "—", verdict: "risk reasons: failed", error: errorText(e) });
+  }
+
   const log = await prisma.agentRunLog.create({
     data: {
+      createdAt: now,
       trigger,
       observations: observations as unknown as Prisma.InputJsonValue,
       decision,

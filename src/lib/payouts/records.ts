@@ -2,6 +2,7 @@
  * Mirror PayPal payout items into Payout rows and keep each PayoutSplit's summary current.
  * Shared by action execution, the webhook handler and the manual sync.
  */
+import { clock } from "@/lib/clock";
 import { PayoutStatus } from "@prisma/client";
 import { num, prisma } from "@/lib/db";
 import { getPayoutBatch, PayPalError, type PayoutBatch } from "@/lib/paypal";
@@ -66,7 +67,7 @@ export async function applyPayoutItem(u: PayoutItemUpdate): Promise<boolean> {
       payoutBatchId: u.payoutBatchId ?? payout.payoutBatchId,
       error: u.error ?? (u.status === "SUCCESS" ? null : payout.error),
       paidOutAt:
-        u.status === "SUCCESS" ? (u.timeProcessed ? new Date(u.timeProcessed) : (payout.paidOutAt ?? new Date())) : payout.paidOutAt,
+        u.status === "SUCCESS" ? (u.timeProcessed ? await clock.fromReal(u.timeProcessed) : (payout.paidOutAt ?? (await clock.now()))) : payout.paidOutAt,
     },
   });
   await refreshSplitSummary(payout.splitId);
@@ -98,7 +99,7 @@ export interface PayoutSyncSummary {
 /** Pull every non-final payout batch from PayPal. */
 export async function syncOpenPayouts(): Promise<PayoutSyncSummary> {
   const open = await prisma.payout.findMany({
-    where: { isDemo: false, status: { in: OPEN_PAYOUT_STATUSES }, payoutBatchId: { not: null } },
+    where: { status: { in: OPEN_PAYOUT_STATUSES }, payoutBatchId: { not: null } },
     select: { payoutBatchId: true },
     distinct: ["payoutBatchId"],
   });

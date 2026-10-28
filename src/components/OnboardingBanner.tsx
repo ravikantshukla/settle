@@ -9,7 +9,7 @@ const STEPS = [
   { title: "Paste an agreement", body: "Load a sample on New invoice. Claude drafts the invoice and flags anything it's unsure of.", href: "/invoices/new" },
   { title: "Approve the invoice", body: "Review, edit if needed, then send it through PayPal Invoicing with one click." },
   { title: "Pay as the sandbox buyer", body: "Open the PayPal link, log in with your sandbox personal account, and pay all or part of it." },
-  { title: "Let the agent work", body: "Sync with PayPal. The agent proposes subcontractor payouts and reminders for late invoices.", href: "/agent" },
+  { title: "Let the agent work", body: "Sync with PayPal, jump the demo clock +7 or +30 days, and run the agent: payouts, reminders, payment plans.", href: "/agent" },
   { title: "Approve", body: "Approve, edit or reject each proposal. Payouts go out as one PayPal Payouts batch.", href: "/payouts" },
 ];
 
@@ -41,8 +41,8 @@ export function OnboardingBanner() {
       </button>
       <h2 id="onboarding-title" className="pr-8 font-semibold">The 3-minute tour</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Everything runs on the PayPal sandbox with test accounts. The sample invoices below (marked DEMO) are local only;
-        approving their proposals is simulated.
+        Everything runs on the PayPal sandbox. In demo mode every invoice goes to your sandbox buyer, and the purple
+        demo clock lets you jump ahead in time to make invoices overdue.
       </p>
       <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {STEPS.map((s, i) => (

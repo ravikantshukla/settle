@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppHeader } from "@/components/AppHeader";
+import { DemoClock } from "@/components/DemoClock";
 import { ToastProvider } from "@/components/Toast";
+import { clock } from "@/lib/clock";
 import { prisma } from "@/lib/db";
+import { isDemoMode } from "@/lib/demo/routing";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -17,12 +20,17 @@ export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const pendingActions = await prisma.agentAction.count({ where: { status: "PROPOSED" } }).catch(() => 0);
+  const demo = isDemoMode();
+  const demoClock = demo
+    ? await Promise.all([clock.now(), clock.offsetDays()]).then(([now, offsetDays]) => ({ now: now.toISOString(), offsetDays })).catch(() => null)
+    : null;
 
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col font-sans antialiased`}>
         <ToastProvider>
-          <AppHeader demoMode={process.env.DEMO_MODE === "true"} pendingActions={pendingActions} />
+          <AppHeader demoMode={demo} pendingActions={pendingActions} />
+          {demoClock && <DemoClock now={demoClock.now} offsetDays={demoClock.offsetDays} />}
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">{children}</main>
           <footer className="border-t border-slate-200 bg-white">
             <p className="mx-auto max-w-6xl px-4 py-4 text-xs text-slate-500">

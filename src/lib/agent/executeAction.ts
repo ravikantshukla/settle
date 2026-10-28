@@ -1,8 +1,8 @@
 /**
  * Execute an approved AgentAction (the only place agent proposals touch PayPal), or reject one.
- * Demo actions (seed data) are simulated locally and never call PayPal.
  */
 import type { AgentAction, Prisma } from "@prisma/client";
+import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { createPayoutBatch, enablePartialPayment, getPayoutBatch, PayPalError, remindInvoice } from "@/lib/paypal";
 import { applyPayoutBatch, refreshSplitSummary } from "@/lib/payouts/records";
@@ -21,7 +21,6 @@ export class ActionStateError extends Error {
 export interface ExecuteResult {
   actionId: string;
   status: "EXECUTED" | "FAILED";
-  simulated: boolean;
   message: string;
   result: Record<string, unknown>;
 }
@@ -41,7 +40,7 @@ function applyEdits(action: AgentAction, edits: ActionEdits | undefined): Prisma
 export async function rejectAction(actionId: string, reason?: string): Promise<void> {
   const { count } = await prisma.agentAction.updateMany({
     where: { id: actionId, status: "PROPOSED" },
-    data: { status: "REJECTED", decidedAt: new Date(), pendingKey: null, result: reason ? { reason } : undefined },
+    data: { status: "REJECTED", decidedAt: await clock.now(), pendingKey: null, result: reason ? { reason } : undefined },
   });
   if (!count) throw new ActionStateError("This action was already decided.");
 }
@@ -49,6 +48,7 @@ export async function rejectAction(actionId: string, reason?: string): Promise<v
 /** Approve (optionally with edits) and execute. Safe against double clicks: only one caller wins the claim. */
 export async function executeAction(actionId: string, rawEdits?: unknown): Promise<ExecuteResult> {
   const edits = rawEdits === undefined ? undefined : ActionEdits.parse(rawEdits);
+  const edited = !!edits && Object.keys(edits).length > 0;
 
   const action = await prisma.agentAction.findUnique({ where: { id: actionId } });
   if (!action) throw new ActionStateError("Action not found.");
@@ -56,56 +56,49 @@ export async function executeAction(actionId: string, rawEdits?: unknown): Promi
 
   const { count } = await prisma.agentAction.updateMany({
     where: { id: actionId, status: "PROPOSED" },
-    data: {
-      status: "APPROVED",
-      decidedAt: new Date(),
-      payload,
-      result: edits && Object.keys(edits).length ? { editedByUser: true } : undefined,
-    },
+    data: { status: "APPROVED", decidedAt: await clock.now(), payload, result: edited ? { editedByUser: true } : undefined },
   });
   if (!count) throw new ActionStateError("This action was already decided.");
 
   const claimed = { ...action, payload } as AgentAction;
   try {
-    const { result, message, simulated } = await perform(claimed);
+    const { result, message } = await perform(claimed);
     await prisma.agentAction.update({
       where: { id: actionId },
       data: {
         status: "EXECUTED",
-        executedAt: new Date(),
+        executedAt: await clock.now(),
         pendingKey: null,
-        result: { ...result, simulated, editedByUser: !!edits && Object.keys(edits).length > 0 } as Prisma.InputJsonValue,
+        result: { ...result, editedByUser: edited } as Prisma.InputJsonValue,
       },
     });
-    return { actionId, status: "EXECUTED", simulated, message, result };
+    return { actionId, status: "EXECUTED", message, result };
   } catch (e) {
     const error = errorText(e);
     await prisma.agentAction.update({
       where: { id: actionId },
       data: { status: "FAILED", pendingKey: null, result: { error } },
     });
-    return { actionId, status: "FAILED", simulated: false, message: error, result: { error } };
+    return { actionId, status: "FAILED", message: error, result: { error } };
   }
 }
 
-async function perform(action: AgentAction): Promise<{ result: Record<string, unknown>; message: string; simulated: boolean }> {
+async function perform(action: AgentAction): Promise<{ result: Record<string, unknown>; message: string }> {
   if (!action.invoiceId) throw new Error("Action has no invoice.");
   const invoice = await prisma.invoice.findUnique({ where: { id: action.invoiceId }, include: agentInvoiceInclude });
   if (!invoice) throw new Error("Invoice not found.");
-  const simulated = action.isDemo || invoice.isDemo;
 
-  if (action.type !== "PAYOUT_SUBCONTRACTORS" && action.type !== "ESCALATE" && !COLLECTIBLE_STATUSES.includes(invoice.status)) {
+  const contactsClient = action.type === "SEND_REMINDER" || action.type === "OFFER_PAYMENT_PLAN";
+  if (contactsClient && !COLLECTIBLE_STATUSES.includes(invoice.status)) {
     throw new Error(`Invoice ${invoice.number} is now ${invoice.status}; nothing to send. Run the agent again for a fresh proposal.`);
   }
-  if (!simulated && !invoice.paypalInvoiceId && action.type !== "ESCALATE" && action.type !== "PAYOUT_SUBCONTRACTORS") {
-    throw new Error("Invoice has no PayPal invoice id.");
-  }
+  if (contactsClient && !invoice.paypalInvoiceId) throw new Error("Invoice has no PayPal invoice id.");
 
   switch (action.type) {
     case "SEND_REMINDER": {
       const p = ReminderPayload.parse(action.payload);
-      if (!simulated) await remindInvoice(invoice.paypalInvoiceId!, { subject: p.subject, note: p.message });
-      return { result: { reminded: true }, message: `Reminder sent for ${invoice.number}.`, simulated };
+      await remindInvoice(invoice.paypalInvoiceId!, { subject: p.subject, note: p.message });
+      return { result: { reminded: true }, message: `Reminder sent through PayPal for ${invoice.number}.` };
     }
 
     case "OFFER_PAYMENT_PLAN": {
@@ -114,39 +107,29 @@ async function perform(action: AgentAction): Promise<{ result: Record<string, un
       if (p.minimumAmount > outstanding + 0.005) {
         throw new Error(`Minimum installment ${p.minimumAmount} exceeds the outstanding ${outstanding.toFixed(2)}.`);
       }
-      if (!simulated) {
-        await enablePartialPayment(invoice.paypalInvoiceId!, p.minimumAmount);
-        await remindInvoice(invoice.paypalInvoiceId!, { subject: p.subject, note: p.message });
-      }
-      await prisma.invoice.update({
-        where: { id: invoice.id },
-        data: { allowPartial: true, minAmountDue: p.minimumAmount },
-      });
+      await enablePartialPayment(invoice.paypalInvoiceId!, p.minimumAmount);
+      await remindInvoice(invoice.paypalInvoiceId!, { subject: p.subject, note: p.message });
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { allowPartial: true, minAmountDue: p.minimumAmount } });
       return {
         result: { partialPaymentEnabled: true, minimumAmount: p.minimumAmount, reminded: true },
-        message: `Installments enabled on ${invoice.number} (min ${p.minimumAmount} ${p.currency}) and the client was notified.`,
-        simulated,
+        message: `Installments enabled on the PayPal invoice ${invoice.number} (min ${p.minimumAmount} ${p.currency}) and the client was notified.`,
       };
     }
 
     case "ESCALATE": {
       EscalatePayload.parse(action.payload);
-      return { result: { acknowledged: true }, message: `${invoice.number} flagged for personal follow-up.`, simulated };
+      return { result: { acknowledged: true }, message: `${invoice.number} flagged for personal follow-up.` };
     }
 
     case "PAYOUT_SUBCONTRACTORS":
-      return executePayout(action, invoice, simulated);
+      return executePayout(action, invoice);
 
     default:
       throw new Error(`${action.type} can't be executed from the agent inbox.`);
   }
 }
 
-async function executePayout(
-  action: AgentAction,
-  invoice: AgentInvoice,
-  simulated: boolean,
-) {
+async function executePayout(action: AgentAction, invoice: AgentInvoice) {
   const p = PayoutPayload.parse(action.payload);
 
   // Guard against paying more than is currently owed (e.g. a payout already went out meanwhile).
@@ -160,28 +143,10 @@ async function executePayout(
   const payouts = await prisma.$transaction(
     p.items.map((item) =>
       prisma.payout.create({
-        data: {
-          splitId: item.splitId,
-          agentActionId: action.id,
-          amount: item.amount,
-          currency: p.currency,
-          status: simulated ? "SUCCESS" : "PENDING",
-          isDemo: simulated,
-          payoutBatchId: simulated ? `DEMO-BATCH-${action.id.slice(-6)}` : null,
-          paidOutAt: simulated ? new Date() : null,
-        },
+        data: { splitId: item.splitId, agentActionId: action.id, amount: item.amount, currency: p.currency, status: "PENDING" },
       }),
     ),
   );
-
-  if (simulated) {
-    for (const po of payouts) await refreshSplitSummary(po.splitId);
-    return {
-      result: { payout_batch_id: payouts[0]?.payoutBatchId, batch_status: "SUCCESS", items: payouts.length },
-      message: `Simulated payout of ${payouts.length} item(s) (demo data).`,
-      simulated,
-    };
-  }
 
   let batchId: string;
   let batchStatus: string;
@@ -222,6 +187,5 @@ async function executePayout(
   return {
     result: { payout_batch_id: batchId, batch_status: batchStatus, items: payouts.length },
     message: `PayPal payout batch ${batchId} created (${batchStatus}).`,
-    simulated,
   };
 }

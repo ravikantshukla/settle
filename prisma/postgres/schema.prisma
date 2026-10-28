@@ -110,6 +110,8 @@ model Invoice {
   paymentTerms    String?
   note            String?
   payerViewUrl    String?
+  /// Where PayPal actually sent the invoice. Differs from the client's email when DEMO_MODE routes it to the sandbox buyer.
+  recipientEmail  String?
   allowPartial    Boolean           @default(false)
   minAmountDue    Decimal?
   sentAt          DateTime?
@@ -239,6 +241,13 @@ model InvoiceRisk {
   fingerprint String
   model       String?
   updatedAt   DateTime @updatedAt
+}
+
+/// Small key/value store for app-wide settings (e.g. the demo clock offset).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 /// Transparency log: what the agent looked at and what it decided.

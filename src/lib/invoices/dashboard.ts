@@ -1,6 +1,12 @@
-/** Server-side data for the receivables dashboard. No AI calls here: risk scores come from the cache. */
+/**
+ * Server-side data for the receivables dashboard. No AI calls here: risk scores are computed by
+ * the rules; the one-line reason comes from the cache (or the rule drivers if stale/missing).
+ */
+import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
+import { agentInvoiceInclude, clientHistories } from "@/lib/agent/context";
 import { COLLECTIBLE_STATUSES, daysOverdue, DAY_MS } from "@/lib/agent/policy";
+import { riskFor, ruleReason } from "@/lib/agent/risk";
 import { money } from "@/lib/format";
 import type { AgingBucket, DashboardRow, Kpis } from "./dashboardTypes";
 
@@ -14,27 +20,28 @@ function bucketFor(status: string, overdue: number | null): AgingBucket {
   return "60+";
 }
 
-export async function dashboardData(now = new Date()): Promise<{ rows: DashboardRow[]; kpis: Kpis }> {
+export async function dashboardData(): Promise<{ rows: DashboardRow[]; kpis: Kpis; now: string }> {
+  const now = await clock.now();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const [invoices, pendingActions, collected] = await Promise.all([
     prisma.invoice.findMany({
       orderBy: { issueDate: "desc" },
-      include: {
-        project: { include: { client: true } },
-        risk: true,
-        agentActions: { where: { status: "PROPOSED" }, orderBy: { proposedAt: "asc" } },
-      },
+      include: { ...agentInvoiceInclude, risk: true },
     }),
     prisma.agentAction.count({ where: { status: "PROPOSED" } }),
     prisma.invoicePayment.findMany({ where: { paidAt: { gte: monthStart } }, select: { amount: true } }),
   ]);
+
+  const histories = await clientHistories([...new Set(invoices.map((i) => i.project.clientId))]);
 
   const rows: DashboardRow[] = invoices.map((inv) => {
     const open = COLLECTIBLE_STATUSES.includes(inv.status);
     const overdue = open && inv.dueDate ? daysOverdue(inv.dueDate, now) : null;
     const amount = num(inv.amount);
     const paid = num(inv.amountPaid);
-    const next = inv.agentActions[0];
+    const next = inv.agentActions.filter((a) => a.status === "PROPOSED").sort((a, b) => a.proposedAt.getTime() - b.proposedAt.getTime())[0];
+    const risk = riskFor(inv, histories.get(inv.project.clientId)?.(inv.id), now);
+    const cached = risk && inv.risk?.fingerprint === risk.fingerprint ? inv.risk : null;
     const p = (next?.payload ?? {}) as { subject?: string; items?: Array<{ amount: number }>; minimumAmount?: number };
     const summary =
       next?.type === "PAYOUT_SUBCONTRACTORS"
@@ -55,7 +62,7 @@ export async function dashboardData(now = new Date()): Promise<{ rows: Dashboard
       dueDate: inv.dueDate?.toISOString().slice(0, 10) ?? null,
       daysOverdue: overdue,
       bucket: bucketFor(inv.status, overdue),
-      risk: open && inv.risk ? { score: inv.risk.score, reason: inv.risk.reason, sample: inv.risk.fingerprint === "seed" } : null,
+      risk: risk ? { score: risk.score, reason: cached?.reason ?? ruleReason(risk), aiReason: !!cached?.model } : null,
       nextAction: next ? { id: next.id, type: next.type, summary } : null,
       payerViewUrl: inv.payerViewUrl,
       isDemo: inv.isDemo,
@@ -68,6 +75,7 @@ export async function dashboardData(now = new Date()): Promise<{ rows: Dashboard
   const currency = currencies.sort((a, b) => currencies.filter((c) => c === b).length - currencies.filter((c) => c === a).length)[0] ?? "USD";
 
   return {
+    now: now.toISOString(),
     rows,
     kpis: {
       currency,

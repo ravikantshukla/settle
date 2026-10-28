@@ -16,7 +16,8 @@ export interface DashboardRow {
   dueDate: string | null;
   daysOverdue: number | null;
   bucket: AgingBucket;
-  risk: { score: number; reason: string; /** Seeded sample, not yet scored by the AI. */ sample: boolean } | null;
+  /** Score from the rules; reason written by the AI when available, else built from the rule drivers. */
+  risk: { score: number; reason: string; aiReason: boolean } | null;
   nextAction: { id: string; type: string; summary: string } | null;
   payerViewUrl: string | null;
   isDemo: boolean;

@@ -11,7 +11,7 @@ type Step =
   | { kind: "extracting" }
   | { kind: "review" }
   | { kind: "sending" }
-  | { kind: "done"; number: string; payerViewUrl: string | null; paypalInvoiceId: string };
+  | { kind: "done"; number: string; payerViewUrl: string | null; paypalInvoiceId: string; recipientEmail: string; routed: boolean; extractedEmail: string };
 
 // Form state keeps numbers as strings so inputs can be edited freely.
 interface FormState {
@@ -71,12 +71,31 @@ function normalizePath(p: string): string {
     .replace(/^(splits\.\d+)\.(percentage|fixedAmount)$/, "$1.value");
 }
 
-export function NewInvoiceFlow() {
+type ExtractionView = Extraction & { model: string; warnings?: string[] };
+
+const BLANK: ExtractionView = {
+  client: { name: "", email: null, company: null },
+  projectTitle: "",
+  currency: "USD",
+  lineItems: [{ description: "", quantity: 1, unitPrice: 0 }],
+  dueDate: null,
+  paymentTerms: null,
+  partialPayment: { allowed: false, minimumAmount: null },
+  subcontractorSplits: [],
+  confidence: 0,
+  uncertainFields: [],
+  notes: null,
+  model: "manual",
+  warnings: [],
+};
+
+export function NewInvoiceFlow({ demo }: { demo: { buyerEmail: string } | null }) {
   const [step, setStep] = useState<Step>({ kind: "input" });
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [extraction, setExtraction] = useState<(Extraction & { model: string }) | null>(null);
+  const [extraction, setExtraction] = useState<ExtractionView | null>(null);
+  const [offerManual, setOfferManual] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [requestId, setRequestId] = useState("");
   const toast = useToast();
@@ -95,7 +114,11 @@ export function NewInvoiceFlow() {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Extraction failed");
+      if (!res.ok) {
+        setOfferManual(data.fallback === "manual");
+        throw new Error(data.error ?? "Extraction failed");
+      }
+      setOfferManual(false);
       setExtraction(data.extraction);
       setForm(toForm(data.extraction));
       setFieldErrors({});
@@ -159,7 +182,15 @@ export function NewInvoiceFlow() {
         throw new Error(data.error ?? "Sending failed");
       }
       toast.success(`Invoice ${data.number} sent via PayPal`, "The client got PayPal's invoice email.");
-      setStep({ kind: "done", number: data.number, payerViewUrl: data.payerViewUrl, paypalInvoiceId: data.paypalInvoiceId });
+      setStep({
+        kind: "done",
+        number: data.number,
+        payerViewUrl: data.payerViewUrl,
+        paypalInvoiceId: data.paypalInvoiceId,
+        recipientEmail: data.recipientEmail,
+        routed: data.routed,
+        extractedEmail: form.clientEmail,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       toast.error("Invoice not sent", e instanceof Error ? e.message : String(e));
@@ -184,6 +215,17 @@ export function NewInvoiceFlow() {
           <div>
             <dt className="inline text-slate-600">PayPal invoice ID: </dt>
             <dd className="inline font-mono">{step.paypalInvoiceId}</dd>
+          </div>
+          <div>
+            <dt className="inline text-slate-600">Sent to: </dt>
+            <dd className="inline">
+              {step.recipientEmail}
+              {step.routed && (
+                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                  demo: routed to sandbox buyer (extracted: {step.extractedEmail})
+                </span>
+              )}
+            </dd>
           </div>
         </dl>
         <div className="mt-5 flex flex-wrap gap-3">
@@ -252,6 +294,22 @@ export function NewInvoiceFlow() {
               {step.kind === "extracting" ? "Reading agreement…" : "Draft invoice with AI"}
             </button>
             {step.kind === "extracting" && <Spinner label="Claude is extracting client, line items and terms" />}
+            {offerManual && step.kind === "input" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExtraction(BLANK);
+                  setForm(toForm(BLANK));
+                  setFieldErrors({});
+                  setError(null);
+                  setRequestId(crypto.randomUUID());
+                  setStep({ kind: "review" });
+                }}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50"
+              >
+                Fill in manually
+              </button>
+            )}
           </div>
         </section>
       )}
@@ -267,6 +325,7 @@ export function NewInvoiceFlow() {
           sending={step.kind === "sending"}
           onBack={reset}
           onSubmit={approveAndSend}
+          demo={demo}
         />
       )}
     </div>
@@ -285,16 +344,17 @@ function Spinner({ label }: { label: string }) {
 interface ReviewProps {
   form: FormState;
   setForm: (f: FormState) => void;
-  extraction: Extraction & { model: string };
+  extraction: ExtractionView;
   isUncertain: (path: string) => boolean;
   fieldErrors: Record<string, string>;
   busy: boolean;
   sending: boolean;
   onBack: () => void;
   onSubmit: () => void;
+  demo: { buyerEmail: string } | null;
 }
 
-function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy, sending, onBack, onSubmit }: ReviewProps) {
+function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy, sending, onBack, onSubmit, demo }: ReviewProps) {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm({ ...form, [key]: value });
   const total = invoiceTotal(form.lineItems.map((li) => ({ quantity: Number(li.quantity) || 0, unitPrice: Number(li.unitPrice) || 0 })));
   const money = (n: number) =>
@@ -329,6 +389,22 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
         onSubmit();
       }}
     >
+      {!!extraction.warnings?.length && (
+        <section role="alert" className="space-y-1 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <p className="font-semibold">Check this draft carefully</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {extraction.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {extraction.model === "manual" ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          Manual entry: the AI wasn&apos;t available, so fill in the invoice yourself. Everything else works the same.
+        </section>
+      ) : (
       <section className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -345,6 +421,7 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
         <span className="ml-auto text-xs text-slate-400">{extraction.model}</span>
         {extraction.notes && <p className="w-full rounded-md bg-slate-50 p-3 text-slate-700">{extraction.notes}</p>}
       </section>
+      )}
 
       <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
         <h2 className="text-sm font-semibold sm:col-span-3">Client &amp; project</h2>
@@ -352,7 +429,14 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
         {field("Client email", "client.email", <input type="email" className={inputCls("client.email")} value={form.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} disabled={busy} placeholder="billing@client.com" />)}
         {field("Company", "client.company", <input className={inputCls("client.company")} value={form.clientCompany} onChange={(e) => set("clientCompany", e.target.value)} disabled={busy} />)}
         <p className="-mt-2 text-xs text-slate-500 sm:col-span-3">
-          Sandbox tip: use your sandbox <b>personal</b> account email here so you can log in and pay the invoice.
+          {demo ? (
+            <>
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800">demo: routed to sandbox buyer</span>{" "}
+              PayPal will send this invoice to <b>{demo.buyerEmail || "SANDBOX_BUYER_EMAIL (not set!)"}</b>; the client email above is kept on the record.
+            </>
+          ) : (
+            <>PayPal sends the invoice to the client email above.</>
+          )}
         </p>
         {field("Project title", "projectTitle", <input className={inputCls("projectTitle")} value={form.projectTitle} onChange={(e) => set("projectTitle", e.target.value)} disabled={busy} />)}
         {field("Due date", "dueDate", <input type="date" className={inputCls("dueDate")} value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} disabled={busy} />)}
