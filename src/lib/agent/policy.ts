@@ -178,9 +178,10 @@ export function riskScore(r: RiskInput, now: Date): RiskScore | null {
     const pts = overdue <= 30 ? 15 + overdue : overdue <= 60 ? 45 + (overdue - 30) * 0.5 : Math.min(75, 60 + (overdue - 60) * 0.25);
     score += pts;
     drivers.push([pts, `${overdue} days overdue`]);
-  } else if (invoiceStage(r.dueDate, now) === "DUE_SOON") {
+  } else if (r.dueDate && invoiceStage(r.dueDate, now) === "DUE_SOON") {
+    const days = Math.ceil(daysBetween(now, r.dueDate));
     score += 5;
-    drivers.push([5, "due within days"]);
+    drivers.push([5, days <= 0 ? "due today" : `due in ${days} day${days === 1 ? "" : "s"}`]);
   }
 
   const paidFraction = r.amount > 0 ? r.amountPaid / r.amount : 0;

@@ -26,7 +26,7 @@ export async function explainPayout(facts: Record<string, unknown>): Promise<{ e
     tool,
     schema: z.object({ explanation: z.string().min(1) }),
     system:
-      "You explain subcontractor payout splits to a freelancer in plain language. Use the exact amounts given; do not recompute or invent numbers.",
+      "You explain subcontractor payout splits to a freelancer in plain language. Use the exact amounts given; do not recompute or invent numbers. Refer to people by name or with they/them; never guess gendered pronouns.",
     effort: "low",
     maxTokens: 4000,
     user: `<payout_facts>\n${JSON.stringify(facts, null, 2)}\n</payout_facts>`,

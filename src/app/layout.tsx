@@ -27,7 +27,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
 
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col font-sans antialiased`}>
+      {/* Browser extensions (e.g. Grammarly) add attributes to <body> before React hydrates. */}
+      <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col font-sans antialiased`}>
         <ToastProvider>
           <AppHeader demoMode={demo} pendingActions={pendingActions} />
           {demoClock && <DemoClock now={demoClock.now} offsetDays={demoClock.offsetDays} />}
