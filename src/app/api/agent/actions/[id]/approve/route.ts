@@ -5,13 +5,16 @@ import { ActionStateError, executeAction } from "@/lib/agent";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** Approve (optionally with edits: { subject?, message?, minimumAmount? }) and execute. */
+/**
+ * Approve (optionally with edits: { subject?, message?, minimumAmount? }) and execute, or schedule a
+ * client-facing message for the client's business hours. `{ sendNow: true }` skips the wait.
+ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await req.json().catch(() => ({}))) as { edits?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { edits?: unknown; sendNow?: unknown };
   try {
-    const result = await executeAction(id, body.edits);
-    return NextResponse.json(result, { status: result.status === "EXECUTED" ? 200 : 502 });
+    const result = await executeAction(id, body.edits, { sendNow: body.sendNow === true });
+    return NextResponse.json(result, { status: result.status === "FAILED" ? 502 : 200 });
   } catch (e) {
     if (e instanceof ActionStateError) return NextResponse.json({ error: e.message }, { status: 409 });
     if (e instanceof ZodError) return NextResponse.json({ error: "Invalid edits", issues: e.issues }, { status: 400 });

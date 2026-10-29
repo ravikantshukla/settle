@@ -13,7 +13,7 @@ vi.mock("@/lib/clock", () => ({ clock: { now: async () => new Date("2026-10-29T1
 const { extractInvoice } = await import("@/lib/ai/extractInvoice");
 
 const validExtraction = {
-  client: { name: "Jamie Rivera", email: "jamie@riverabakery.example", company: "Rivera Bakery LLC" },
+  client: { name: "Jamie Rivera", email: "jamie@riverabakery.example", company: "Rivera Bakery LLC", timezone: "America/Chicago", country: "us" },
   projectTitle: "Shopify theme + product photos",
   currency: "usd",
   lineItems: [
@@ -110,6 +110,13 @@ describe("extractInvoice (Claude mocked)", () => {
   it("rejects empty input without calling the API", async () => {
     await expect(extractInvoice("   ")).rejects.toThrow(/Paste an agreement/);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps a valid client timezone, normalises the country, and drops an invalid zone", async () => {
+    create.mockResolvedValueOnce(toolResponse(validExtraction));
+    expect((await extractInvoice("text", { today: "2026-10-29" })).client).toMatchObject({ timezone: "America/Chicago", country: "US" });
+    create.mockResolvedValueOnce(toolResponse({ ...validExtraction, client: { ...validExtraction.client, timezone: "Central Time", country: "USA" } }));
+    expect((await extractInvoice("text", { today: "2026-10-29" })).client).toMatchObject({ timezone: null, country: null });
   });
 
   it("fails clearly when the model doesn't call the tool", async () => {

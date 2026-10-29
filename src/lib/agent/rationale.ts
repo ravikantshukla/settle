@@ -162,6 +162,72 @@ export function payoutRationale(i: PayoutInput): ActionRationale {
   };
 }
 
+export interface ReplyInput {
+  now: Date;
+  receivedAt: Date;
+  category: "HARDSHIP" | "DISPUTE";
+  summary: string;
+  /** Model id that read the reply; null when the keyword fallback did. */
+  readBy: string | null;
+  currency: string;
+  amount: number;
+  amountPaid: number;
+  payments: Array<{ amount: number; paidAt: Date }>;
+  contacts: Array<{ type: string; at: Date; subject: string | null }>;
+  risk: { score: number; factors: RiskFactor[] } | null;
+  action: "OFFER_PAYMENT_PLAN" | "ESCALATE";
+  /** Plan proposals: the limits and the code's rule-by-rule checks. */
+  limits?: { minUpfrontPercent: number; maxInstallments: number; maxDaysAfterDue: number };
+  checks?: Array<{ rule: string; requested: string; result: "pass" | "clamped" | "fail"; applied: string }>;
+  rejectedBecause?: string;
+  /** Model id when Claude wrote the response, null for the template. */
+  model: string | null;
+}
+
+const CHECK_MARK = { pass: "✓", clamped: "Adjusted:", fail: "✗" } as const;
+
+/** Rationale for a proposal made from a client's reply (hardship -> plan, dispute or no valid plan -> escalate). */
+export function replyRationale(i: ReplyInput): ActionRationale {
+  const readBy = i.readBy ? "Claude" : "keyword matching (AI unavailable)";
+  const label = i.category === "HARDSHIP" ? "financial hardship" : "a dispute";
+  const details = (i.checks ?? []).map((c) =>
+    c.result === "pass" ? `${CHECK_MARK.pass} ${c.rule}: ${c.applied}` : `${CHECK_MARK[c.result]} ${c.rule}: asked ${c.requested}, ${c.result === "fail" ? "not possible" : `set to ${c.applied}`}`,
+  );
+  const plan = i.action === "OFFER_PAYMENT_PLAN";
+  const rule = plan
+    ? `The plan was built by code from your limits (at least ${i.limits!.minUpfrontPercent}% upfront, at most ${i.limits!.maxInstallments} payments, last payment within ${i.limits!.maxDaysAfterDue} days of the due date). Claude only read the reply; it can't change these terms.`
+    : i.rejectedBecause
+      ? `No payment plan fits your limits (${i.rejectedBecause}), so it's handed to you instead of the agent offering terms you didn't allow.`
+      : "Disputes need a person: the agent stops chasing and hands it to you.";
+  return {
+    v: 1,
+    evaluatedAt: iso(i.now),
+    trigger: `Client replied on ${day(i.receivedAt)}; ${readBy} read it as ${label}: "${i.summary}"`,
+    evidence: {
+      currency: i.currency,
+      amount: i.amount,
+      amountPaid: i.amountPaid,
+      outstanding: Math.round((i.amount - i.amountPaid) * 100) / 100,
+      payments: i.payments.map((p) => ({ amount: p.amount, at: iso(p.paidAt) })),
+      reminders: i.contacts.map((c) => ({ type: c.type, at: iso(c.at), subject: c.subject })),
+      risk: i.risk,
+    },
+    decision: {
+      action: i.action,
+      tone: plan ? "empathetic" : "internal",
+      path: plan ? "Hardship reply → Offer payment plan → empathetic tone" : `${i.category === "HARDSHIP" ? "Hardship reply, no plan within limits" : "Dispute"} → Escalate to you → note for you, not the client`,
+      rule,
+      details,
+    },
+    wording: plan
+      ? i.model
+        ? { by: "claude", label: "Response written by Claude, for the plan above" }
+        : { by: "template", label: "Response from a built-in template (Claude was unavailable)" }
+      : { by: "template", label: "Note generated from the rules" },
+    safety: APPROVAL_NOTE,
+  };
+}
+
 /** Narrow an AgentAction.rationale JSON value (null for actions proposed before this existed). */
 export function asRationale(v: unknown): ActionRationale | null {
   return v && typeof v === "object" && (v as { v?: unknown }).v === 1 ? (v as ActionRationale) : null;

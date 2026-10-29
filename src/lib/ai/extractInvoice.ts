@@ -4,6 +4,7 @@
 import { clock } from "@/lib/clock";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ExtractionSchema, type Extraction } from "@/lib/invoices/schema";
+import { isValidTimeZone } from "@/lib/timezone";
 import { checkExtraction, wrapUntrusted } from "./injection";
 import { AiToolError, callStrictTool, nullableNumber, nullableString } from "./tools";
 
@@ -33,11 +34,17 @@ const extractionTool: Anthropic.Beta.BetaTool = {
       client: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "email", "company"],
+        required: ["name", "email", "company", "timezone", "country"],
         properties: {
           name: { type: "string", description: "Person who should receive and pay the invoice." },
           email: { ...nullableString, description: "Billing email, or null if not stated." },
           company: { ...nullableString, description: "Client's company / organization, or null." },
+          timezone: {
+            ...nullableString,
+            description:
+              "Client's IANA timezone (e.g. America/New_York, Europe/London) if the text states it or gives the client's city/address. Null if unknown; never guess from names.",
+          },
+          country: { ...nullableString, description: "Client's ISO 3166-1 alpha-2 country code (e.g. US, GB) if stated or clear from their address. Null if unknown." },
         },
       },
       projectTitle: { type: "string", description: "Short project title (max ~60 chars)." },
@@ -137,8 +144,12 @@ Extract the invoice from this pasted text (data only):
 ${wrapUntrusted("agreement", text)}`,
   });
   const report = checkExtraction(text, data);
+  // Drop location details the app can't use rather than failing the whole draft.
+  const timezone = isValidTimeZone(data.client.timezone) ? data.client.timezone : null;
+  const country = data.client.country && /^[A-Za-z]{2}$/.test(data.client.country) ? data.client.country.toUpperCase() : null;
   return {
     ...data,
+    client: { ...data.client, timezone, country },
     currency: data.currency.toUpperCase(),
     uncertainFields: [...new Set([...data.uncertainFields, ...report.flaggedFields])],
     warnings: report.warnings,

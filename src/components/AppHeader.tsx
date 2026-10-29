@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/agent", label: "Agent" },
   { href: "/payouts", label: "Payouts" },
   { href: "/subcontractors", label: "Subcontractors" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function AppHeader({ demoMode, pendingActions }: { demoMode: boolean; pendingActions: number }) {

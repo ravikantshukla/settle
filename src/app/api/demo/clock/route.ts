@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { dispatchScheduledActions } from "@/lib/agent";
 import { clock } from "@/lib/clock";
 import { isDemoMode } from "@/lib/demo/routing";
 
@@ -13,5 +14,7 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Send { advanceDays: number } or { reset: true }." }, { status: 400 });
   const now = "reset" in parsed.data ? await clock.reset() : await clock.advanceDays(parsed.data.advanceDays);
-  return NextResponse.json({ now: now.toISOString(), offsetDays: await clock.offsetDays() });
+  // Jumping forward can open the send window of approved, scheduled reminders.
+  const sent = await dispatchScheduledActions();
+  return NextResponse.json({ now: now.toISOString(), offsetDays: await clock.offsetDays(), sent: sent.map((s) => ({ status: s.status, message: s.message })) });
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { TimezoneInput } from "@/components/TimezoneInput";
 import { useToast } from "@/components/Toast";
 import { SAMPLE_AGREEMENTS } from "@/lib/invoices/samples";
 import { invoiceTotal, type Extraction } from "@/lib/invoices/schema";
@@ -18,6 +19,8 @@ interface FormState {
   clientName: string;
   clientEmail: string;
   clientCompany: string;
+  clientTimezone: string;
+  clientCountry: string;
   projectTitle: string;
   currency: string;
   dueDate: string;
@@ -34,6 +37,8 @@ function toForm(x: Extraction): FormState {
     clientName: x.client.name,
     clientEmail: x.client.email ?? "",
     clientCompany: x.client.company ?? "",
+    clientTimezone: x.client.timezone ?? "",
+    clientCountry: x.client.country ?? "",
     projectTitle: x.projectTitle,
     currency: x.currency,
     dueDate: x.dueDate ?? "",
@@ -74,7 +79,7 @@ function normalizePath(p: string): string {
 type ExtractionView = Extraction & { model: string; warnings?: string[] };
 
 const BLANK: ExtractionView = {
-  client: { name: "", email: null, company: null },
+  client: { name: "", email: null, company: null, timezone: null, country: null },
   projectTitle: "",
   currency: "USD",
   lineItems: [{ description: "", quantity: 1, unitPrice: 0 }],
@@ -139,7 +144,13 @@ export function NewInvoiceFlow({ demo }: { demo: { buyerEmail: string } | null }
     const body = {
       requestId,
       sourceText: text,
-      client: { name: form.clientName, email: form.clientEmail, company: optStr(form.clientCompany) },
+      client: {
+        name: form.clientName,
+        email: form.clientEmail,
+        company: optStr(form.clientCompany),
+        timezone: optStr(form.clientTimezone),
+        country: optStr(form.clientCountry),
+      },
       projectTitle: form.projectTitle,
       currency: form.currency,
       dueDate: optStr(form.dueDate),
@@ -428,6 +439,13 @@ function ReviewForm({ form, setForm, extraction, isUncertain, fieldErrors, busy,
         {field("Client name", "client.name", <input className={inputCls("client.name")} value={form.clientName} onChange={(e) => set("clientName", e.target.value)} disabled={busy} />)}
         {field("Client email", "client.email", <input type="email" className={inputCls("client.email")} value={form.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} disabled={busy} placeholder="billing@client.com" />)}
         {field("Company", "client.company", <input className={inputCls("client.company")} value={form.clientCompany} onChange={(e) => set("clientCompany", e.target.value)} disabled={busy} />)}
+        {field(
+          "Client timezone",
+          "client.timezone",
+          <TimezoneInput className={inputCls("client.timezone")} value={form.clientTimezone} onChange={(e) => set("clientTimezone", e.target.value)} disabled={busy} placeholder="e.g. America/New_York" />,
+        )}
+        {field("Client country", "client.country", <input className={inputCls("client.country")} value={form.clientCountry} onChange={(e) => set("clientCountry", e.target.value)} disabled={busy} placeholder="e.g. US, GB" maxLength={2} />)}
+        <p className="self-end pb-2 text-xs text-slate-500">Reminders go out 9am–6pm on weekdays in the client&apos;s timezone; the country sets the tone of the wording.</p>
         <p className="-mt-2 text-xs text-slate-500 sm:col-span-3">
           {demo ? (
             <>

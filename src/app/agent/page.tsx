@@ -2,6 +2,8 @@ import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { daysOverdue } from "@/lib/agent/policy";
 import { asRationale } from "@/lib/agent/rationale";
+import { getSettings } from "@/lib/settings";
+import { describeInstant, describeSendTiming, isValidTimeZone } from "@/lib/timezone";
 import { ActionCard, type InboxAction } from "./ActionCard";
 import { RunAgentButton } from "./RunAgentButton";
 import { Timeline, type TimelineItem } from "./Timeline";
@@ -11,9 +13,10 @@ export const metadata = { title: "Agent inbox" };
 
 export default async function AgentPage() {
   const now = await clock.now();
+  const { timezone: myTz } = await getSettings();
   const [pending, decided, runs] = await Promise.all([
     prisma.agentAction.findMany({
-      where: { status: { in: ["PROPOSED", "APPROVED"] } },
+      where: { status: { in: ["PROPOSED", "SCHEDULED", "APPROVED"] } },
       orderBy: { proposedAt: "desc" },
       include: { invoice: { include: { project: { include: { client: true } } } } },
     }),
@@ -26,12 +29,23 @@ export default async function AgentPage() {
     prisma.agentRunLog.findMany({ orderBy: { createdAt: "desc" }, take: 15 }),
   ]);
 
+  const CLIENT_FACING = ["SEND_REMINDER", "OFFER_PAYMENT_PLAN"];
+  const sendTiming = (a: (typeof pending)[number]): string | null => {
+    if (!CLIENT_FACING.includes(a.type)) return null;
+    const tz = a.invoice?.project.client.timezone;
+    if (a.status === "SCHEDULED" && a.scheduledFor) {
+      return isValidTimeZone(tz) ? `Scheduled: sends at ${describeInstant(a.scheduledFor, now, tz, myTz)}` : "Scheduled";
+    }
+    return describeSendTiming(now, tz, myTz).text;
+  };
+
   const inbox: InboxAction[] = pending.map((a) => ({
     id: a.id,
     type: a.type,
     status: a.status,
     reasoning: a.reasoning,
     rationale: asRationale(a.rationale),
+    sendTiming: sendTiming(a),
     payload: a.payload as Record<string, unknown>,
     proposedAt: a.proposedAt.toISOString(),
     isDemo: a.isDemo,
@@ -46,6 +60,9 @@ export default async function AgentPage() {
       payerViewUrl: a.invoice.payerViewUrl,
     },
   }));
+
+  const awaiting = inbox.filter((a) => a.status !== "SCHEDULED");
+  const scheduled = inbox.filter((a) => a.status === "SCHEDULED");
 
   const timeline: TimelineItem[] = [
     ...runs.map((r) => ({
@@ -87,21 +104,32 @@ export default async function AgentPage() {
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
           Needs your approval
-          <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">{inbox.length}</span>
+          <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">{awaiting.length}</span>
         </h2>
-        {inbox.length === 0 ? (
+        {awaiting.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
             <p className="font-medium">You&apos;re all caught up</p>
             <p className="mt-1 text-sm text-slate-500">No proposals waiting. Run the agent to check open invoices now.</p>
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {inbox.map((a) => (
+            {awaiting.map((a) => (
               <ActionCard key={a.id} action={a} now={now.toISOString()} />
             ))}
           </div>
         )}
       </section>
+
+      {scheduled.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Approved, waiting for the client&apos;s business hours</h2>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {scheduled.map((a) => (
+              <ActionCard key={a.id} action={a} now={now.toISOString()} compact />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Activity</h2>

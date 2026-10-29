@@ -8,9 +8,11 @@ import { templateMessage, writeCollectionMessage, type Draft } from "@/lib/ai/co
 import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { money, shortDate } from "@/lib/format";
+import { getSettings, type FreelancerSettings } from "@/lib/settings";
 import { agentInvoiceInclude, claudeFacts, clientHistories, collectKey, contactHistory, factsFor, type AgentInvoice, type ClientHistory } from "./context";
 import type { PaymentPlanPayload } from "./payloads";
 import { assessInvoice, COLLECTIBLE_STATUSES, COLLECTION_ACTIONS, hasHardshipSignal, suggestedMinimum, type Assessment } from "./policy";
+import { dispatchScheduledActions } from "./executeAction";
 import { payoutItemsFor, proposePayout } from "./proposePayout";
 import { collectionRationale } from "./rationale";
 import { refreshRiskReasons, riskFor } from "./risk";
@@ -53,8 +55,10 @@ async function proposeCollection(
   a: Extract<Assessment, { attention: true }>,
   history: ClientHistory | undefined,
   now: Date,
+  freelancer: FreelancerSettings,
 ): Promise<{ actionId?: string; verdict: string; model?: string }> {
-  const facts = claudeFacts(inv, history, now);
+  // Only who's signing: the negotiation limits must never reach a client-facing prompt.
+  const facts = claudeFacts(inv, history, now, { name: freelancer.name, city: freelancer.city });
   const planMinimum = a.action === "OFFER_PAYMENT_PLAN" ? suggestedMinimum(a.outstanding) : undefined;
 
   let draft: Draft;
@@ -144,6 +148,9 @@ async function proposeCollection(
 }
 
 export async function runAgent(trigger: string): Promise<RunSummary> {
+  // 0. Approved messages whose send window (client's business hours) has opened go out first.
+  const dispatched = await dispatchScheduledActions();
+
   const now = await clock.now();
   const invoices = await prisma.invoice.findMany({
     where: { OR: [{ status: { in: COLLECTIBLE_STATUSES } }, { amountPaid: { gt: 0 }, payoutSplits: { some: {} } }] },
@@ -151,8 +158,13 @@ export async function runAgent(trigger: string): Promise<RunSummary> {
     orderBy: { dueDate: "asc" },
   });
   const histories = await clientHistories([...new Set(invoices.map((i) => i.project.clientId))]);
+  const freelancer = await getSettings();
 
-  const observations: Observation[] = [];
+  const observations: Observation[] = dispatched.map((d) => ({
+    invoice: "—",
+    verdict: d.status === "EXECUTED" ? `sent scheduled message: ${d.message}` : `scheduled message failed`,
+    ...(d.status === "FAILED" && { error: d.message }),
+  }));
   const actionIds: string[] = [];
   const models = new Set<string>();
 
@@ -176,7 +188,7 @@ export async function runAgent(trigger: string): Promise<RunSummary> {
   const results = await mapLimit(flagged, 3, async ({ inv, assessment }) => {
     const base = { invoice: inv.number, daysOverdue: assessment.daysOverdue, outstanding: assessment.outstanding };
     try {
-      const r = await proposeCollection(inv, assessment, histories.get(inv.project.clientId)?.(inv.id), now);
+      const r = await proposeCollection(inv, assessment, histories.get(inv.project.clientId)?.(inv.id), now, freelancer);
       if (r.model) models.add(r.model);
       return { ...base, verdict: `${assessment.stage} (${assessment.reason}) → ${r.verdict}`, actionId: r.actionId };
     } catch (e) {

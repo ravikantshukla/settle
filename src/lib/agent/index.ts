@@ -7,7 +7,14 @@ import { prisma } from "@/lib/db";
 import { proposePayout } from "./proposePayout";
 
 export { runAgent, type RunSummary } from "./runAgent";
-export { executeAction, rejectAction, ActionStateError, type ExecuteResult } from "./executeAction";
+export {
+  executeAction,
+  rejectAction,
+  sendScheduledAction,
+  dispatchScheduledActions,
+  ActionStateError,
+  type ExecuteResult,
+} from "./executeAction";
 export { proposePayout } from "./proposePayout";
 
 export const agent = {

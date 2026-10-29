@@ -95,17 +95,24 @@ export async function sendNewInvoice(input: ReviewedInvoice, opts: SendOptions =
     const existingClient = await tx.client.findFirst({
       where: { email: input.client.email, isDemo: opts.isDemo ?? false },
     });
-    const client =
-      existingClient ??
-      (await tx.client.create({
-        data: {
-          name: input.client.name,
-          email: input.client.email,
-          company: input.client.company || null,
-          notes: opts.clientNotes ?? null,
-          isDemo: opts.isDemo ?? false,
-        },
-      }));
+    const location = {
+      ...(input.client.timezone && { timezone: input.client.timezone }),
+      ...(input.client.country && { country: input.client.country }),
+    };
+    const client = existingClient
+      ? Object.keys(location).length
+        ? await tx.client.update({ where: { id: existingClient.id }, data: location })
+        : existingClient
+      : await tx.client.create({
+          data: {
+            name: input.client.name,
+            email: input.client.email,
+            company: input.client.company || null,
+            notes: opts.clientNotes ?? null,
+            ...location,
+            isDemo: opts.isDemo ?? false,
+          },
+        });
 
     const project = await tx.project.create({
       data: { clientId: client.id, title: input.projectTitle, sourceText: input.sourceText, isDemo: opts.isDemo ?? false },

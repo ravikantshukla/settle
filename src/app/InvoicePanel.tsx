@@ -1,16 +1,20 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { StatusPill } from "@/components/StatusPill";
 import { WhyThisAction } from "@/components/WhyThisAction";
 import { money, shortDate } from "@/lib/format";
 import type { InvoiceTimeline, TimelineEventKind } from "@/lib/invoices/timeline";
+import { ClientLocation, ClientReplyForm } from "./InvoicePanelExtras";
 
 const DOT: Record<TimelineEventKind, string> = {
   created: "bg-slate-400",
   sent: "bg-[#0070ba]",
   contact: "bg-sky-500",
   proposal: "bg-amber-400 ring-2 ring-amber-100",
+  scheduled: "bg-sky-300 ring-2 ring-sky-100",
+  reply: "bg-fuchsia-500",
   payment: "bg-emerald-500",
   paid: "bg-emerald-600",
   payout: "bg-violet-500",
@@ -19,12 +23,19 @@ const DOT: Record<TimelineEventKind, string> = {
 };
 
 export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null; onClose: () => void }) {
+  const router = useRouter();
   const [state, setState] = useState<{ id: string; data?: InvoiceTimeline; error?: string } | null>(null);
+  // Bumped after an edit or a client reply to reload the timeline in place.
+  const [version, setVersion] = useState(0);
+  const reload = () => {
+    setVersion((v) => v + 1);
+    router.refresh();
+  };
 
   useEffect(() => {
     if (!invoiceId) return;
     let cancelled = false;
-    setState({ id: invoiceId });
+    setState((s) => (s?.id === invoiceId ? s : { id: invoiceId }));
     fetch(`/api/invoices/${invoiceId}/timeline`)
       .then(async (r) => {
         const body = await r.json();
@@ -35,7 +46,7 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null;
     return () => {
       cancelled = true;
     };
-  }, [invoiceId]);
+  }, [invoiceId, version]);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -99,6 +110,9 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null;
                 </div>
               </dl>
 
+              <ClientLocation key={`${t.clientInfo.id}:${t.clientInfo.timezone}:${t.clientInfo.country}`} client={t.clientInfo} onSaved={reload} />
+              {t.collectible && <ClientReplyForm invoiceId={t.id} onDone={reload} />}
+
               <ol className="relative space-y-4 border-l border-slate-200 pl-5">
                 {t.events.map((e, i) => (
                   <li key={i} className="relative">
@@ -108,6 +122,11 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null;
                     </p>
                     <p className="text-xs text-slate-500">{shortDate(e.at)}</p>
                     {e.detail && <p className="mt-0.5 text-sm text-slate-600">{e.detail}</p>}
+                    {e.quote && (
+                      <blockquote className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded border-l-4 border-fuchsia-200 bg-slate-50 px-2 py-1 text-xs italic text-slate-600">
+                        {e.quote}
+                      </blockquote>
+                    )}
                     {e.rationale && (
                       <div className="mt-2">
                         <WhyThisAction rationale={e.rationale} />

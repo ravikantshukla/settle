@@ -14,6 +14,8 @@ export interface InboxAction {
   status: string;
   reasoning: string | null;
   rationale: ActionRationale | null;
+  /** Client-facing actions: when an approved message goes out (client's business hours). */
+  sendTiming: string | null;
   payload: Record<string, unknown>;
   proposedAt: string;
   isDemo: boolean;
@@ -39,12 +41,26 @@ interface PayoutItem {
 
 const CLIENT_FACING = new Set(["SEND_REMINDER", "OFFER_PAYMENT_PLAN"]);
 
+interface Negotiation {
+  reply: { text: string; category: string; summary: string; warnings: string[] };
+  outcome: "ok" | "clamped" | "rejected";
+  checks: Array<{ rule: string; limit: string; requested: string; result: "pass" | "clamped" | "fail"; applied: string }>;
+  plan: { installments: Array<{ n: number; dueDate: string; amount: number }>; total: number; minimumAmount: number } | null;
+}
+
+const CHECK_STYLE = {
+  pass: "bg-emerald-100 text-emerald-800",
+  clamped: "bg-amber-100 text-amber-800",
+  fail: "bg-red-100 text-red-800",
+} as const;
+const CHECK_LABEL = { pass: "Pass", clamped: "Adjusted", fail: "Fail" } as const;
+
 export function ActionCard({ action, now, compact = false }: { action: InboxAction; now: string; compact?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const p = action.payload;
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState<null | "approve" | "reject">(null);
+  const [busy, setBusy] = useState<null | "approve" | "reject" | "send">(null);
   const [subject, setSubject] = useState(String(p.subject ?? ""));
   const [message, setMessage] = useState(String(p.message ?? ""));
   const [minimum, setMinimum] = useState(String(p.minimumAmount ?? ""));
@@ -53,6 +69,9 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
   const currency = (p.currency as string) ?? inv?.currency ?? "USD";
   const items = (p.items as PayoutItem[] | undefined) ?? [];
   const inFlight = action.status === "APPROVED";
+  const scheduled = action.status === "SCHEDULED";
+  const negotiation = (p.negotiation as Negotiation | undefined) ?? null;
+  const reply = negotiation?.reply ?? ((p.reply as Negotiation["reply"] | undefined) ?? null);
 
   async function approve() {
     setBusy("approve");
@@ -64,8 +83,9 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
             ...(action.type === "OFFER_PAYMENT_PLAN" && Number(minimum) !== p.minimumAmount && { minimumAmount: Number(minimum) }),
           }
         : undefined;
-      const r = await postJson<{ message: string }>(`/api/agent/actions/${action.id}/approve`, { edits });
-      toast.success("Done via PayPal", r.message);
+      const r = await postJson<{ message: string; status: string }>(`/api/agent/actions/${action.id}/approve`, { edits });
+      if (r.status === "SCHEDULED") toast.info("Approved and scheduled", r.message);
+      else toast.success("Done via PayPal", r.message);
       router.refresh();
     } catch (e) {
       toast.error(`${ACTION_LABEL[action.type] ?? action.type} failed`, e instanceof Error ? e.message : String(e));
@@ -75,11 +95,25 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
     }
   }
 
+  async function sendNow() {
+    setBusy("send");
+    try {
+      const r = await postJson<{ message: string }>(`/api/agent/actions/${action.id}/send-now`, {});
+      toast.success("Sent via PayPal", r.message);
+    } catch (e) {
+      toast.error("Couldn't send", e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+      router.refresh();
+    }
+  }
+
   async function reject() {
     setBusy("reject");
     try {
       await postJson(`/api/agent/actions/${action.id}/reject`, {});
-      toast.info("Proposal rejected", "The agent won't propose this again for a few days.");
+      if (scheduled) toast.info("Scheduled message cancelled", "Nothing was sent.");
+      else toast.info("Proposal rejected", "The agent won't propose this again for a few days.");
       router.refresh();
     } catch (e) {
       toast.error("Couldn't reject", e instanceof Error ? e.message : String(e));
@@ -123,9 +157,63 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
 
         {action.rationale && <WhyThisAction rationale={action.rationale} open={!compact} />}
 
+        {reply && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Client&apos;s reply <span className="normal-case tracking-normal text-slate-400">(pasted by you; treated as untrusted data)</span>
+            </p>
+            <blockquote className="whitespace-pre-wrap rounded-lg border-l-4 border-slate-300 bg-slate-50 px-3 py-2 italic text-slate-700">{reply.text}</blockquote>
+            <p className="text-xs text-slate-500">
+              Read as <b className="text-slate-700">{reply.category.toLowerCase().replaceAll("_", " ")}</b>: {reply.summary}
+            </p>
+            {reply.warnings.map((w) => (
+              <p key={w} className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                ⚠ {w}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {negotiation?.plan && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Payment plan</p>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {negotiation.plan.installments.map((x) => (
+                  <tr key={x.n}>
+                    <td className="py-1 text-slate-600">Payment {x.n}</td>
+                    <td className="py-1 text-slate-600">by {x.dueDate}</td>
+                    <td className="py-1 text-right font-semibold tabular-nums">{money(x.amount, currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {negotiation && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Limits check <span className="normal-case tracking-normal text-slate-400">(by code, against your Settings)</span>
+            </p>
+            <ul className="space-y-1 text-xs">
+              {negotiation.checks.map((c, i) => (
+                <li key={i} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className={`rounded px-1.5 py-px font-semibold ${CHECK_STYLE[c.result]}`}>{CHECK_LABEL[c.result]}</span>
+                  <span className="font-medium text-slate-800">{c.rule}</span>
+                  <span className="text-slate-500">
+                    limit {c.limit} · asked {c.requested}
+                    {c.result !== "fail" && <> · plan {c.applied}</>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {CLIENT_FACING.has(action.type) && (
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Message to client (sent through PayPal)</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{reply ? "Drafted response" : "Message to client"} (sent through PayPal)</p>
             {editing ? (
               <>
                 <input className={field} value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" />
@@ -174,9 +262,26 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
         )}
       </div>
 
+      {action.sendTiming && (
+        <p className={`border-t border-slate-100 px-4 py-2 text-xs ${scheduled ? "bg-sky-50 font-medium text-sky-900" : "text-slate-600"}`}>🕘 {action.sendTiming}</p>
+      )}
+
       <footer className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3">
         {inFlight ? (
           <span className="text-sm text-slate-500">Executing…</span>
+        ) : scheduled ? (
+          <>
+            <button
+              onClick={sendNow}
+              disabled={!!busy}
+              className="rounded-lg bg-[#0070ba] px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-[#005ea6] disabled:opacity-60"
+            >
+              {busy === "send" ? "Sending…" : "Send now"}
+            </button>
+            <button onClick={reject} disabled={!!busy} className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-60">
+              {busy === "reject" ? "Cancelling…" : "Cancel"}
+            </button>
+          </>
         ) : (
           <>
             <button

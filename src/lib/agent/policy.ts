@@ -66,9 +66,11 @@ export interface InvoiceFacts {
   reminderCount: number;
   planOffered: boolean;
   /** The collection proposal currently awaiting approval, if any. */
-  pendingAction: { type: AgentActionType; stage: Stage | null } | null;
+  pendingAction: { type: AgentActionType; stage: Stage | null; fromReply?: boolean } | null;
   lastRejectedAt: Date | null;
   hardshipSignal: boolean;
+  /** The client promised (in a reply) to pay in full by this date: no reminders until the day after. */
+  promisedBy?: Date | null;
 }
 
 export type Assessment =
@@ -97,6 +99,9 @@ export function assessInvoice(f: InvoiceFacts, now: Date): Assessment {
   if (outstanding <= 0) return skip("nothing outstanding");
   if (!f.dueDate) return skip("no due date");
   if (stage === "NOT_DUE") return skip(`due in ${Math.ceil(daysBetween(now, f.dueDate))} days`);
+  if (f.promisedBy && daysBetween(f.promisedBy, now) < 1) {
+    return skip(`client promised to pay by ${f.promisedBy.toISOString().slice(0, 10)}`);
+  }
   if (f.lastRejectedAt && daysBetween(f.lastRejectedAt, now) < POLICY.rejectionCooldownDays) {
     return skip("a proposal was rejected recently");
   }
@@ -133,6 +138,8 @@ export function assessInvoice(f: InvoiceFacts, now: Date): Assessment {
   }
 
   // One pending proposal per invoice: keep it if it still fits, replace it if things escalated.
+  // A proposal answering the client's own reply is never replaced by a routine one.
+  if (f.pendingAction?.fromReply) return skip("a response to the client's reply is waiting for approval");
   let supersedes = false;
   if (f.pendingAction) {
     if (f.pendingAction.type === action && f.pendingAction.stage === stage) return skip("a proposal is already waiting for approval");

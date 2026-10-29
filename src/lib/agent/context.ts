@@ -8,6 +8,7 @@ export const agentInvoiceInclude = {
   agentActions: { orderBy: { createdAt: "asc" } },
   payoutSplits: { include: { subcontractor: true, payouts: true } },
   payments: { orderBy: { paidAt: "asc" } },
+  clientReplies: { orderBy: { receivedAt: "asc" } },
 } satisfies Prisma.InvoiceInclude;
 
 export type AgentInvoice = Prisma.InvoiceGetPayload<{ include: typeof agentInvoiceInclude }>;
@@ -41,12 +42,14 @@ export function factsFor(inv: AgentInvoice): InvoiceFacts {
     reminderCount: contacts.filter((c) => c.type === "SEND_REMINDER").length,
     planOffered: contacts.some((c) => c.type === "OFFER_PAYMENT_PLAN"),
     pendingAction: (() => {
-      const pending = collection.find((a) => a.status === "PROPOSED" || a.status === "APPROVED");
+      const pending = collection.find((a) => a.status === "PROPOSED" || a.status === "APPROVED" || a.status === "SCHEDULED");
       if (!pending) return null;
-      return { type: pending.type, stage: ((pending.payload as { stage?: Stage } | null)?.stage ?? null) as Stage | null };
+      const p = pending.payload as { stage?: Stage; negotiation?: unknown; reply?: unknown } | null;
+      return { type: pending.type, stage: (p?.stage ?? null) as Stage | null, fromReply: !!(p?.negotiation || p?.reply) };
     })(),
     lastRejectedAt: rejected.length ? new Date(Math.max(...rejected.map((d) => d.getTime()))) : null,
     hardshipSignal: hasHardshipSignal(inv.project.client.notes),
+    promisedBy: inv.clientReplies.filter((r) => r.category === "PROMISE_TO_PAY" && r.promisedDate).at(-1)?.promisedDate ?? null,
   };
 }
 
@@ -91,7 +94,12 @@ export async function clientHistories(clientIds: string[]): Promise<Map<string, 
 }
 
 /** The facts Claude sees for one invoice. */
-export function claudeFacts(inv: AgentInvoice, history: ClientHistory | undefined, now: Date) {
+export function claudeFacts(
+  inv: AgentInvoice,
+  history: ClientHistory | undefined,
+  now: Date,
+  freelancer?: { name: string; city: string },
+) {
   const client = inv.project.client;
   return {
     invoice: {
@@ -108,7 +116,8 @@ export function claudeFacts(inv: AgentInvoice, history: ClientHistory | undefine
       partialPaymentsAllowed: inv.allowPartial,
       minimumPartialPayment: inv.minAmountDue ? num(inv.minAmountDue) : null,
     },
-    client: { name: client.name, company: client.company, notes: client.notes },
+    client: { name: client.name, company: client.company, country: client.country, notes: client.notes },
+    freelancer: freelancer ?? null,
     previousContacts: contactHistory(inv).map((c) => ({ ...c, at: c.at.toISOString().slice(0, 10) })),
     clientPaymentHistory: history ?? null,
     today: now.toISOString().slice(0, 10),

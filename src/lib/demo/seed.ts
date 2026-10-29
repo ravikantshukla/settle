@@ -21,7 +21,7 @@ const DAY = 86_400_000;
 
 export interface DemoInvoiceSpec {
   key: string;
-  client: { name: string; email: string; company: string; notes: string };
+  client: { name: string; email: string; company: string; notes: string; timezone: string; country: string };
   title: string;
   sourceText: string;
   dueInDays: number;
@@ -34,61 +34,100 @@ export interface DemoInvoiceSpec {
   paidAfterDays?: number;
 }
 
+/**
+ * The freelancer is Aarav Mishra in Lucknow (see Settings); clients are in the US and UK and are
+ * billed in USD. Subcontractors are Indian freelancers paid through PayPal Payouts.
+ */
 export const DEMO_INVOICES: DemoInvoiceSpec[] = [
   {
-    key: "northwind",
-    client: { name: "Maya Patel", email: "maya@northwindcoffee.example", company: "Northwind Coffee Co.", notes: "Pays reliably, usually within a week." },
+    key: "hudson",
+    client: {
+      name: "Emily Carter",
+      email: "emily@hudsonpikecoffee.example",
+      company: "Hudson & Pike Coffee",
+      notes: "Brooklyn roastery. Pays reliably, usually within two weeks.",
+      timezone: "America/New_York",
+      country: "US",
+    },
     title: "Brand refresh",
-    sourceText: "Brand refresh for Northwind: logo refinement, packaging illustrations (Chen gets 25%), brand guidelines. $4,800, net 14.",
+    sourceText: "Brand refresh for Hudson & Pike (Brooklyn, NY): logo refinement, packaging illustrations (Neha gets 25%), brand guidelines. $4,800, net 14.",
     dueInDays: 14,
     lines: [
       ["Logo refinement", 1, 1200],
       ["Packaging illustrations (3 SKUs)", 3, 800],
       ["Brand guidelines document", 1, 1200],
     ],
-    splits: [{ sub: 0, name: "Chen Wei", percentage: 25 }],
+    splits: [{ sub: 0, name: "Neha Verma", percentage: 25 }],
     recordPayment: 4800,
     paidAfterDays: 9,
   },
   {
-    key: "fernhill",
-    client: { name: "Tom Hale", email: "tom@fernhillstudio.example", company: "Fernhill Studio", notes: "Pays at the end of their two-week billing cycle." },
+    key: "thames",
+    client: {
+      name: "Oliver Bennett",
+      email: "oliver@thameslanestudio.example",
+      company: "Thames Lane Studio",
+      notes: "London design studio. Pays at the end of their two-week billing cycle.",
+      timezone: "Europe/London",
+      country: "GB",
+    },
     title: "Newsletter templates",
-    sourceText: "Three reusable email newsletter templates, $650 each. Net 15.",
+    sourceText: "Three reusable email newsletter templates for Thames Lane Studio (London), $650 each. Net 15.",
     dueInDays: 15,
     lines: [["Email newsletter template", 3, 650]],
     recordPayment: 1950,
     paidAfterDays: 14,
   },
   {
-    key: "brightline",
-    client: { name: "Jordan Lee", email: "jordan@brightlinefitness.example", company: "Brightline Fitness", notes: "New client as of this quarter." },
+    key: "bayside",
+    client: {
+      name: "Jordan Lee",
+      email: "jordan@baysidefitness.example",
+      company: "Bayside Fitness",
+      notes: "San Francisco gym chain. New client as of this quarter.",
+      timezone: "America/Los_Angeles",
+      country: "US",
+    },
     title: "Class-booking website",
-    sourceText: "5-page marketing site with class schedule embed. $2,400 build + $800 copy. Due in 3 days.",
+    sourceText: "5-page marketing site with class schedule embed for Bayside Fitness (San Francisco). $2,400 build + $800 copy. Due in 3 days.",
     dueInDays: 3,
     lines: [
       ["Website design & build (5 pages)", 1, 2400],
       ["Website copywriting", 1, 800],
     ],
-    splits: [{ sub: 1, name: "Rosa Alvarez", fixedAmount: 600 }],
+    splits: [{ sub: 1, name: "Rohan Gupta", fixedAmount: 600 }],
   },
   {
-    key: "harbor",
-    client: { name: "Sam Okafor", email: "accounts@harborpine.example", company: "Harbor & Pine Architects", notes: "AP runs payments on the 1st and 15th." },
+    key: "kingsley",
+    client: {
+      name: "Sophie Clarke",
+      email: "accounts@kingsleyrowe.example",
+      company: "Kingsley & Rowe Architects",
+      notes: "Manchester practice. AP runs payments on the 1st and 15th.",
+      timezone: "Europe/London",
+      country: "GB",
+    },
     title: "Portfolio site & CMS",
-    sourceText: "Design 40h @ $95, development 30h @ $110. Dev subcontracting backend for a flat $1,500. Net 10.",
+    sourceText: "Design 40h @ $95, development 30h @ $110 for Kingsley & Rowe (Manchester, UK). Rohan subcontracts the backend for a flat $1,500. Net 10.",
     dueInDays: 10,
     lines: [
       ["Design", 40, 95],
       ["Development", 30, 110],
     ],
-    splits: [{ sub: 1, name: "Dev Kumar", fixedAmount: 1500 }],
+    splits: [{ sub: 1, name: "Rohan Gupta", fixedAmount: 1500 }],
   },
   {
     key: "lumen",
-    client: { name: "Priya Raman", email: "priya@lumenhealth.example", company: "Lumen Health Clinic", notes: "Mentioned cash-flow issues during the last call." },
+    client: {
+      name: "Priya Raman",
+      email: "priya@lumenhealth.example",
+      company: "Lumen Health Clinic",
+      notes: "Austin, Texas clinic. Mentioned cash-flow issues during the last call.",
+      timezone: "America/Chicago",
+      country: "US",
+    },
     title: "Patient intake app, phase 1",
-    sourceText: "Phase 1 intake app, hosting setup and staff training. Fixed fee $9,750, net 20.",
+    sourceText: "Phase 1 intake app, hosting setup and staff training for Lumen Health (Austin, TX). Fixed fee $9,750, net 20.",
     dueInDays: 20,
     lines: [
       ["Intake app build (fixed fee)", 1, 8500],
@@ -97,10 +136,17 @@ export const DEMO_INVOICES: DemoInvoiceSpec[] = [
     ],
   },
   {
-    key: "tidewater",
-    client: { name: "Alex Moreno", email: "alex@tidewaterbooks.example", company: "Tidewater Books", notes: "Agreed to pay in installments." },
+    key: "wrenfield",
+    client: {
+      name: "Alasdair Reid",
+      email: "alasdair@wrenfieldbooks.example",
+      company: "Wrenfield Books",
+      notes: "Edinburgh bookshop. Agreed to pay in installments.",
+      timezone: "Europe/London",
+      country: "GB",
+    },
     title: "E-commerce migration",
-    sourceText: "Shopify migration: catalog, theme, launch email. $5,600; installments of at least $800. Net 21.",
+    sourceText: "Shopify migration for Wrenfield Books (Edinburgh): catalog, theme, launch email. $5,600; installments of at least $800. Net 21.",
     dueInDays: 21,
     lines: [
       ["Product catalog migration", 1, 2200],
@@ -108,7 +154,7 @@ export const DEMO_INVOICES: DemoInvoiceSpec[] = [
       ["Launch email campaign", 1, 800],
     ],
     allowPartial: { minimum: 800 },
-    splits: [{ sub: 0, name: "Rosa Alvarez", fixedAmount: 400 }],
+    splits: [{ sub: 0, name: "Neha Verma", fixedAmount: 400 }],
     recordPayment: 2400,
   },
 ];
@@ -148,7 +194,7 @@ export async function seedDemo(): Promise<SeedResult> {
       const reviewed: ReviewedInvoice = {
         requestId: crypto.randomUUID(),
         sourceText: spec.sourceText,
-        client: { name: spec.client.name, email: spec.client.email, company: spec.client.company },
+        client: { name: spec.client.name, email: spec.client.email, company: spec.client.company, timezone: spec.client.timezone, country: spec.client.country },
         projectTitle: spec.title,
         currency: "USD",
         lineItems: spec.lines.map(([description, quantity, unitPrice]) => ({ description, quantity, unitPrice })),
@@ -201,6 +247,7 @@ export async function cancelOpenSandboxInvoices(): Promise<{ cancelled: number; 
 export async function clearAll() {
   await prisma.$transaction([
     prisma.webhookEvent.deleteMany(),
+    prisma.clientReply.deleteMany(),
     prisma.agentRunLog.deleteMany(),
     prisma.agentAction.deleteMany(),
     prisma.invoiceRisk.deleteMany(),

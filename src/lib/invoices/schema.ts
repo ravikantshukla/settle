@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { validateSplits } from "@/lib/agent/payoutShares";
+import { isValidTimeZone } from "@/lib/timezone";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
@@ -12,6 +13,8 @@ export const ExtractionSchema = z.object({
     name: z.string(),
     email: z.string().nullable(),
     company: z.string().nullable(),
+    timezone: z.string().nullable(),
+    country: z.string().nullable(),
   }),
   projectTitle: z.string(),
   currency: z.string().length(3),
@@ -53,6 +56,17 @@ export const ReviewedInvoiceSchema = z
       name: z.string().trim().min(1, "Client name is required"),
       email: z.string().trim().email("A valid client email is required"),
       company: z.string().trim().optional(),
+      timezone: z
+        .string()
+        .trim()
+        .refine((tz) => isValidTimeZone(tz), "Use an IANA timezone, e.g. America/New_York")
+        .optional(),
+      country: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z]{2}$/, "2-letter country code, e.g. US")
+        .transform((s) => s.toUpperCase())
+        .optional(),
     }),
     projectTitle: z.string().trim().min(1, "Project title is required"),
     currency: z

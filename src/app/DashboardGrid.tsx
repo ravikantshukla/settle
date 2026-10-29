@@ -142,8 +142,9 @@ export function DashboardGrid({ rows }: { rows: DashboardRow[] }) {
       async decide(actionId, kind, invoiceNumber) {
         try {
           if (kind === "approve") {
-            const r = await postJson<{ message: string }>(`/api/agent/actions/${actionId}/approve`, {});
-            toast.success(`${invoiceNumber}: done via PayPal`, r.message);
+            const r = await postJson<{ message: string; status: string }>(`/api/agent/actions/${actionId}/approve`, {});
+            if (r.status === "SCHEDULED") toast.info(`${invoiceNumber}: approved and scheduled`, r.message);
+            else toast.success(`${invoiceNumber}: done via PayPal`, r.message);
           } else {
             await postJson(`/api/agent/actions/${actionId}/reject`, {});
             toast.info(`${invoiceNumber}: proposal rejected`);

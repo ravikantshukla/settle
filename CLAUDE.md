@@ -65,6 +65,10 @@ render.yaml         Render Blueprint (web service; DB on Neon; hourly agent via 
   Agent actions always need human approval.
 - **Rate-limit every endpoint that calls Claude.** AI calls have a 30-second timeout and a graceful fallback.
 - **All date logic uses `clock.now()`**, never `Date.now()` or `new Date()` directly.
+- **Client-facing messages respect the client's timezone:** approved reminders and plans are `SCHEDULED` for the
+  next weekday 9:00–18:00 in `Client.timezone` (demo clock), unless the user clicks Send now.
+- **Negotiation limits are enforced in code** (`src/lib/negotiation/limits.ts`), never by the prompt. Claude only
+  reads a client's reply (untrusted) and reports what was asked; it never sees the limits.
 
 ## Commands
 

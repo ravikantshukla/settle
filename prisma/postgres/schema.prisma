@@ -52,6 +52,8 @@ enum AgentActionType {
 
 enum AgentActionStatus {
   PROPOSED
+  /// Approved, waiting for the client's 9am–6pm weekday window (see scheduledFor).
+  SCHEDULED
   APPROVED
   REJECTED
   EXECUTED
@@ -64,6 +66,10 @@ model Client {
   email     String
   company   String?
   notes     String?
+  /// IANA timezone (e.g. "America/New_York"): reminders go out 9am–6pm on weekdays there.
+  timezone  String?
+  /// ISO 3166-1 alpha-2 (e.g. "US", "GB"), given to Claude for professional style.
+  country   String?
   isDemo    Boolean   @default(false)
   projects  Project[]
   createdAt DateTime  @default(now())
@@ -125,6 +131,7 @@ model Invoice {
   runLogs         AgentRunLog[]
   risk            InvoiceRisk?
   payments        InvoicePayment[]
+  clientReplies   ClientReply[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -202,6 +209,8 @@ model AgentAction {
   /// "Why this action?": the facts the rules used when proposing (trigger, evidence, decision),
   /// frozen at proposal time. See src/lib/agent/rationale.ts.
   rationale  Json?
+  /// SCHEDULED actions: when to send (demo-clock time, inside the client's business hours).
+  scheduledFor DateTime?
   /// PayPal response / error details after execution.
   result     Json?
   /// Set to the invoice id while PROPOSED/APPROVED, null once decided. The unique index
@@ -285,4 +294,35 @@ model WebhookEvent {
   processedAt  DateTime?
 
   @@index([eventType])
+}
+
+enum ReplyCategory {
+  PROMISE_TO_PAY
+  HARDSHIP
+  DISPUTE
+  OTHER
+}
+
+/// A client's reply that the freelancer pasted in ("Client replied"). The text is untrusted.
+model ClientReply {
+  id           String        @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  text         String
+  receivedAt   DateTime
+  category     ReplyCategory
+  summary      String?
+  /// PROMISE_TO_PAY: the date the client promised (reminders pause until then).
+  promisedDate DateTime?
+  /// What the client asked for, as read by Claude (untrusted; code applies the limits).
+  request      Json?
+  /// Deterministic warnings (injection-like text, claimed approvals).
+  warnings     Json?
+  /// Claude model that classified it; null when the keyword fallback did.
+  model        String?
+  /// The proposal created from this reply, if any.
+  actionId     String?
+  createdAt    DateTime      @default(now())
+
+  @@index([invoiceId])
 }

@@ -1,9 +1,21 @@
 /** Chronological history of one invoice, for the dashboard side panel. */
 import { num, prisma } from "@/lib/db";
+import { COLLECTIBLE_STATUSES } from "@/lib/agent/policy";
 import { asRationale, type ActionRationale } from "@/lib/agent/rationale";
 import { ACTION_LABEL } from "@/lib/format";
 
-export type TimelineEventKind = "created" | "sent" | "contact" | "proposal" | "payment" | "paid" | "payout" | "cancelled" | "failed";
+export type TimelineEventKind =
+  | "created"
+  | "sent"
+  | "contact"
+  | "proposal"
+  | "scheduled"
+  | "reply"
+  | "payment"
+  | "paid"
+  | "payout"
+  | "cancelled"
+  | "failed";
 
 export interface TimelineEvent {
   kind: TimelineEventKind;
@@ -13,6 +25,8 @@ export interface TimelineEvent {
   href?: string;
   /** For pending proposals: the facts the rules used ("Why this action?"). */
   rationale?: ActionRationale;
+  /** Client replies: the pasted text (untrusted; render as plain text). */
+  quote?: string;
 }
 
 export interface InvoiceTimeline {
@@ -24,12 +38,16 @@ export interface InvoiceTimeline {
   amount: number;
   amountPaid: number;
   status: string;
+  /** Still owed money: "Client replied" is available. */
+  collectible: boolean;
+  clientInfo: { id: string; timezone: string | null; country: string | null };
   isDemo: boolean;
   paypalInvoiceId: string | null;
   payerViewUrl: string | null;
   events: TimelineEvent[];
 }
 
+const shortDateTime = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 const fmt = (n: number, c: string) => new Intl.NumberFormat("en-US", { style: "currency", currency: c }).format(n);
 
 export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimeline | null> {
@@ -39,6 +57,7 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
       project: { include: { client: true } },
       agentActions: true,
       payments: true,
+      clientReplies: true,
       payoutSplits: { include: { subcontractor: true, payouts: true } },
     },
   });
@@ -59,6 +78,18 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
     });
   }
 
+  // Replies first: a proposal made from a reply has the same timestamp and should read after it.
+  for (const r of inv.clientReplies) {
+    const category = r.category.toLowerCase().replaceAll("_", " ");
+    events.push({
+      kind: "reply",
+      at: r.receivedAt.toISOString(),
+      title: `Client replied: ${category}${r.promisedDate ? ` (promised by ${r.promisedDate.toISOString().slice(0, 10)})` : ""}`,
+      detail: r.summary ?? undefined,
+      quote: r.text,
+    });
+  }
+
   for (const a of inv.agentActions) {
     if (a.type === "SEND_INVOICE" || a.type === "PAYOUT_SUBCONTRACTORS") continue;
     const payload = (a.payload ?? {}) as { subject?: string; message?: string; minimumAmount?: number };
@@ -72,6 +103,13 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
       });
     } else if (a.status === "PROPOSED") {
       events.push({ kind: "proposal", at: a.proposedAt.toISOString(), title: `Agent proposes: ${label}`, detail: a.reasoning ?? undefined, rationale: asRationale(a.rationale) ?? undefined });
+    } else if (a.status === "SCHEDULED") {
+      events.push({
+        kind: "scheduled",
+        at: (a.decidedAt ?? a.updatedAt).toISOString(),
+        title: `${label} approved: sends ${a.scheduledFor ? shortDateTime(a.scheduledFor) : "soon"} (client's business hours)`,
+        detail: payload.subject,
+      });
     } else if (a.status === "FAILED") {
       events.push({ kind: "failed", at: a.updatedAt.toISOString(), title: `${label} failed`, detail: (a.result as { error?: string } | null)?.error });
     }
@@ -110,6 +148,8 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
     amount: num(inv.amount),
     amountPaid: num(inv.amountPaid),
     status: inv.status,
+    collectible: COLLECTIBLE_STATUSES.includes(inv.status),
+    clientInfo: { id: inv.project.client.id, timezone: inv.project.client.timezone, country: inv.project.client.country },
     isDemo: inv.isDemo,
     paypalInvoiceId: inv.paypalInvoiceId,
     payerViewUrl: inv.payerViewUrl,
