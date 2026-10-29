@@ -1,6 +1,7 @@
 import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { daysOverdue } from "@/lib/agent/policy";
+import { asRationale } from "@/lib/agent/rationale";
 import { ActionCard, type InboxAction } from "./ActionCard";
 import { RunAgentButton } from "./RunAgentButton";
 import { Timeline, type TimelineItem } from "./Timeline";
@@ -30,6 +31,7 @@ export default async function AgentPage() {
     type: a.type,
     status: a.status,
     reasoning: a.reasoning,
+    rationale: asRationale(a.rationale),
     payload: a.payload as Record<string, unknown>,
     proposedAt: a.proposedAt.toISOString(),
     isDemo: a.isDemo,

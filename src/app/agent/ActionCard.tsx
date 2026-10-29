@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useToast } from "@/components/Toast";
+import { WhyThisAction } from "@/components/WhyThisAction";
+import type { ActionRationale } from "@/lib/agent/rationale";
 import { postJson } from "@/lib/api";
 import { ACTION_LABEL, ACTION_STYLE, money, relativeTime } from "@/lib/format";
 
@@ -11,6 +13,7 @@ export interface InboxAction {
   type: string;
   status: string;
   reasoning: string | null;
+  rationale: ActionRationale | null;
   payload: Record<string, unknown>;
   proposedAt: string;
   isDemo: boolean;
@@ -113,10 +116,12 @@ export function ActionCard({ action, now, compact = false }: { action: InboxActi
 
         {action.reasoning && (
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-700">
-            <span className="mr-1 font-medium text-slate-900">Why:</span>
+            <span className="mr-1 font-medium text-slate-900">{action.type === "PAYOUT_SUBCONTRACTORS" ? "Split:" : "Summary:"}</span>
             {action.reasoning}
           </p>
         )}
+
+        {action.rationale && <WhyThisAction rationale={action.rationale} open={!compact} />}
 
         {CLIENT_FACING.has(action.type) && (
           <div className="space-y-2">

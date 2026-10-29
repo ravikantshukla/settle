@@ -7,6 +7,7 @@ export const agentInvoiceInclude = {
   project: { include: { client: true } },
   agentActions: { orderBy: { createdAt: "asc" } },
   payoutSplits: { include: { subcontractor: true, payouts: true } },
+  payments: { orderBy: { paidAt: "asc" } },
 } satisfies Prisma.InvoiceInclude;
 
 export type AgentInvoice = Prisma.InvoiceGetPayload<{ include: typeof agentInvoiceInclude }>;

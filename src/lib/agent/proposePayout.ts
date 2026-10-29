@@ -11,6 +11,7 @@ import { COMMITTED_PAYOUT_STATUSES } from "@/lib/payouts/records";
 import { agentInvoiceInclude, payoutKey, type AgentInvoice } from "./context";
 import type { PayoutPayload } from "./payloads";
 import { computeSharesDue } from "./payoutShares";
+import { payoutRationale } from "./rationale";
 
 export type ProposeResult =
   | { created: true; actionId: string }
@@ -83,8 +84,9 @@ export async function proposePayout(invoiceId: string): Promise<ProposeResult> {
   };
 
   let explanation: string;
+  let model: string | null = null;
   try {
-    explanation = (await explainPayout(facts)).explanation;
+    ({ explanation, model } = await explainPayout(facts));
   } catch (e) {
     console.warn(`payout explanation failed; using template: ${e instanceof Error ? e.message : e}`);
     explanation = `${inv.number} has received ${amountPaid.toFixed(2)} of ${amount.toFixed(2)} ${currency}. ${items
@@ -93,6 +95,16 @@ export async function proposePayout(invoiceId: string): Promise<ProposeResult> {
   }
 
   const payload: PayoutPayload = { currency, invoiceAmount: amount, amountPaid, explanation, items };
+  const now = await clock.now();
+  const rationale = payoutRationale({
+    now,
+    currency,
+    amount,
+    amountPaid,
+    payments: inv.payments.map((p) => ({ amount: num(p.amount), paidAt: p.paidAt })),
+    shares: items.map((i) => ({ name: i.name, amount: i.amount, basis: i.basis })),
+    model,
+  });
   try {
     const action = await prisma.agentAction.create({
       data: {
@@ -100,9 +112,10 @@ export async function proposePayout(invoiceId: string): Promise<ProposeResult> {
         invoiceId: inv.id,
         payload: payload as unknown as Prisma.InputJsonValue,
         reasoning: explanation,
+        rationale: rationale as unknown as Prisma.InputJsonValue,
         isDemo: inv.isDemo,
         pendingKey: payoutKey(inv.id),
-        proposedAt: await clock.now(),
+        proposedAt: now,
       },
     });
     return { created: true, actionId: action.id };

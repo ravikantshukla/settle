@@ -79,6 +79,8 @@ export type Assessment =
       action: Extract<AgentActionType, "SEND_REMINDER" | "OFFER_PAYMENT_PLAN" | "ESCALATE">;
       tone: Tone;
       reason: string;
+      /** Which rule chose the action and tone, in plain words (shown in "Why this action?"). */
+      rule: string;
       daysOverdue: number;
       outstanding: number;
       /** A pending proposal that this one replaces because the situation escalated. */
@@ -105,19 +107,29 @@ export function assessInvoice(f: InvoiceFacts, now: Date): Assessment {
 
   let action: Extract<AgentActionType, "SEND_REMINDER" | "OFFER_PAYMENT_PLAN" | "ESCALATE">;
   let tone: Tone;
+  let rule: string;
   const planAvailable = !f.planOffered && !f.allowPartial;
   if (stage === "DUE_SOON") {
     action = "SEND_REMINDER";
     tone = "friendly";
+    rule = `Due within ${POLICY.dueSoonDays} days and not yet late, so a friendly nudge.`;
   } else if (overdue >= POLICY.escalateAfterDays && (f.planOffered || f.reminderCount >= 2)) {
     action = "ESCALATE";
     tone = "internal";
+    rule = `${POLICY.escalateAfterDays}+ days overdue and ${f.planOffered ? "a payment plan was already offered" : `${f.reminderCount} reminders already sent`}, so hand it to you for personal follow-up instead of another automated message.`;
   } else if ((stage === "SERIOUSLY_OVERDUE" || f.hardshipSignal) && planAvailable) {
     action = "OFFER_PAYMENT_PLAN";
     tone = "empathetic";
+    rule =
+      stage === "SERIOUSLY_OVERDUE"
+        ? `${POLICY.paymentPlanAfterDays}+ days overdue and no payment plan offered yet, so offer installments in an empathetic tone.`
+        : "Overdue, the client's notes mention financial difficulty, and no payment plan was offered yet, so offer installments in an empathetic tone.";
   } else {
     action = "SEND_REMINDER";
     tone = "firm";
+    rule = !planAvailable && stage === "SERIOUSLY_OVERDUE"
+      ? "Seriously overdue, but partial payments are already enabled or a plan was offered, so a firm reminder."
+      : "Past the due date, so a firm but polite reminder.";
   }
 
   // One pending proposal per invoice: keep it if it still fits, replace it if things escalated.
@@ -134,6 +146,7 @@ export function assessInvoice(f: InvoiceFacts, now: Date): Assessment {
     action,
     tone,
     reason: `${when}${f.hardshipSignal ? ", hardship signal in notes" : ""}`,
+    rule,
     daysOverdue: overdue,
     outstanding,
     supersedes,
@@ -161,68 +174,58 @@ export interface RiskInput {
   history: { paidInvoices: number; averageDaysLate: number | null; paidOnTime: number; otherOpenInvoices: number } | null;
 }
 
+export interface RiskFactor {
+  text: string;
+  /** Signed contribution to the score (e.g. +22, -10; 0 for context-only factors). */
+  points: number;
+}
+
 export interface RiskScore {
   score: number;
   /** Human-readable drivers, most important first (used for the fallback reason and given to Claude). */
   drivers: string[];
+  /** The same drivers with their points, most important first (shown in "Why this action?"). */
+  factors: RiskFactor[];
 }
 
 /** 0 = will be paid on time, 100 = very unlikely to be paid. Null for invoices that aren't collectible. */
 export function riskScore(r: RiskInput, now: Date): RiskScore | null {
   if (!COLLECTIBLE_STATUSES.includes(r.status) || r.amount - r.amountPaid <= 0) return null;
-  const drivers: Array<[weight: number, text: string]> = [];
+  const found: Array<RiskFactor & { weight: number }> = [];
   let score = 5;
+  /** `weight` orders the drivers; it defaults to the size of the factor's effect. */
+  const add = (points: number, text: string, weight = Math.abs(points)) => {
+    score += points;
+    found.push({ text, points: Math.round(points * 10) / 10, weight });
+  };
 
   const overdue = daysOverdue(r.dueDate, now);
   if (overdue > 0) {
-    const pts = overdue <= 30 ? 15 + overdue : overdue <= 60 ? 45 + (overdue - 30) * 0.5 : Math.min(75, 60 + (overdue - 60) * 0.25);
-    score += pts;
-    drivers.push([pts, `${overdue} days overdue`]);
+    add(overdue <= 30 ? 15 + overdue : overdue <= 60 ? 45 + (overdue - 30) * 0.5 : Math.min(75, 60 + (overdue - 60) * 0.25), `${overdue} days overdue`);
   } else if (r.dueDate && invoiceStage(r.dueDate, now) === "DUE_SOON") {
     const days = Math.ceil(daysBetween(now, r.dueDate));
-    score += 5;
-    drivers.push([5, days <= 0 ? "due today" : `due in ${days} day${days === 1 ? "" : "s"}`]);
+    add(5, days <= 0 ? "due today" : `due in ${days} day${days === 1 ? "" : "s"}`);
   }
 
   const paidFraction = r.amount > 0 ? r.amountPaid / r.amount : 0;
-  if (paidFraction > 0) {
-    const pts = -Math.round(20 * paidFraction);
-    score += pts;
-    drivers.push([-pts, `${Math.round(paidFraction * 100)}% already paid`]);
-  }
-  if (r.hardshipSignal) {
-    score += 15;
-    drivers.push([15, "client mentioned financial difficulty"]);
-  }
-  if (overdue > 0 && r.reminderCount > 0) {
-    const pts = Math.min(15, r.reminderCount * 5);
-    score += pts;
-    drivers.push([pts, `${r.reminderCount} reminder(s) without full payment`]);
-  }
-  if (r.planOffered && paidFraction === 0 && overdue > 0) {
-    score += 5;
-    drivers.push([5, "payment plan offered, nothing paid yet"]);
-  }
+  if (paidFraction > 0) add(-Math.round(20 * paidFraction), `${Math.round(paidFraction * 100)}% already paid`);
+  if (r.hardshipSignal) add(15, "client mentioned financial difficulty");
+  if (overdue > 0 && r.reminderCount > 0) add(Math.min(15, r.reminderCount * 5), `${r.reminderCount} reminder(s) without full payment`);
+  if (r.planOffered && paidFraction === 0 && overdue > 0) add(5, "payment plan offered, nothing paid yet");
 
   const h = r.history;
   if (h && h.paidInvoices > 0) {
-    if ((h.averageDaysLate ?? 0) > 10) {
-      score += 10;
-      drivers.push([10, `usually pays ~${h.averageDaysLate} days late`]);
-    } else if (h.paidOnTime === h.paidInvoices) {
-      score -= 10;
-      drivers.push([10, "has always paid on time"]);
-    }
-  } else if (!h || h.paidInvoices === 0) {
-    drivers.push([1, "no payment history with this client"]);
+    if ((h.averageDaysLate ?? 0) > 10) add(10, `usually pays ~${h.averageDaysLate} days late`);
+    else if (h.paidOnTime === h.paidInvoices) add(-10, "has always paid on time");
+  } else {
+    add(0, "no payment history with this client", 1);
   }
-  if (h && h.otherOpenInvoices > 0 && overdue > 0) {
-    score += 5;
-    drivers.push([5, `${h.otherOpenInvoices} other unpaid invoice(s)`]);
-  }
+  if (h && h.otherOpenInvoices > 0 && overdue > 0) add(5, `${h.otherOpenInvoices} other unpaid invoice(s)`);
 
+  const factors = found.sort((x, y) => y.weight - x.weight).map(({ text, points }) => ({ text, points }));
   return {
     score: Math.max(0, Math.min(100, Math.round(score))),
-    drivers: drivers.sort((a, b) => b[0] - a[0]).map(([, t]) => t),
+    drivers: factors.map((f) => f.text),
+    factors,
   };
 }

@@ -1,5 +1,6 @@
 /** Chronological history of one invoice, for the dashboard side panel. */
 import { num, prisma } from "@/lib/db";
+import { asRationale, type ActionRationale } from "@/lib/agent/rationale";
 import { ACTION_LABEL } from "@/lib/format";
 
 export type TimelineEventKind = "created" | "sent" | "contact" | "proposal" | "payment" | "paid" | "payout" | "cancelled" | "failed";
@@ -10,6 +11,8 @@ export interface TimelineEvent {
   title: string;
   detail?: string;
   href?: string;
+  /** For pending proposals: the facts the rules used ("Why this action?"). */
+  rationale?: ActionRationale;
 }
 
 export interface InvoiceTimeline {
@@ -68,7 +71,7 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
         detail: payload.subject,
       });
     } else if (a.status === "PROPOSED") {
-      events.push({ kind: "proposal", at: a.proposedAt.toISOString(), title: `Agent proposes: ${label}`, detail: a.reasoning ?? undefined });
+      events.push({ kind: "proposal", at: a.proposedAt.toISOString(), title: `Agent proposes: ${label}`, detail: a.reasoning ?? undefined, rationale: asRationale(a.rationale) ?? undefined });
     } else if (a.status === "FAILED") {
       events.push({ kind: "failed", at: a.updatedAt.toISOString(), title: `${label} failed`, detail: (a.result as { error?: string } | null)?.error });
     }
@@ -94,7 +97,7 @@ export async function invoiceTimeline(invoiceId: string): Promise<InvoiceTimelin
   }
   const pendingPayout = inv.agentActions.find((a) => a.type === "PAYOUT_SUBCONTRACTORS" && a.status === "PROPOSED");
   if (pendingPayout) {
-    events.push({ kind: "proposal", at: pendingPayout.proposedAt.toISOString(), title: "Agent proposes: subcontractor payout", detail: pendingPayout.reasoning ?? undefined });
+    events.push({ kind: "proposal", at: pendingPayout.proposedAt.toISOString(), title: "Agent proposes: subcontractor payout", detail: pendingPayout.reasoning ?? undefined, rationale: asRationale(pendingPayout.rationale) ?? undefined });
   }
 
   events.sort((a, b) => a.at.localeCompare(b.at));

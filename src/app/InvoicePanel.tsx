@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { StatusPill } from "@/components/StatusPill";
+import { WhyThisAction } from "@/components/WhyThisAction";
 import { money, shortDate } from "@/lib/format";
 import type { InvoiceTimeline, TimelineEventKind } from "@/lib/invoices/timeline";
 
@@ -107,6 +108,11 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string | null;
                     </p>
                     <p className="text-xs text-slate-500">{shortDate(e.at)}</p>
                     {e.detail && <p className="mt-0.5 text-sm text-slate-600">{e.detail}</p>}
+                    {e.rationale && (
+                      <div className="mt-2">
+                        <WhyThisAction rationale={e.rationale} />
+                      </div>
+                    )}
                     {e.href && (
                       <a href={e.href} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-xs font-medium text-[#0070ba] hover:underline">
                         Open in PayPal ↗

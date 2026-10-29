@@ -199,6 +199,9 @@ model AgentAction {
   payload    Json
   /// The agent's explanation, shown to the human approver.
   reasoning  String?
+  /// "Why this action?": the facts the rules used when proposing (trigger, evidence, decision),
+  /// frozen at proposal time. See src/lib/agent/rationale.ts.
+  rationale  Json?
   /// PayPal response / error details after execution.
   result     Json?
   /// Set to the invoice id while PROPOSED/APPROVED, null once decided. The unique index

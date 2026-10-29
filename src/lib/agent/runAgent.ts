@@ -8,11 +8,12 @@ import { templateMessage, writeCollectionMessage, type Draft } from "@/lib/ai/co
 import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
 import { money, shortDate } from "@/lib/format";
-import { agentInvoiceInclude, claudeFacts, clientHistories, collectKey, factsFor, type AgentInvoice } from "./context";
+import { agentInvoiceInclude, claudeFacts, clientHistories, collectKey, contactHistory, factsFor, type AgentInvoice, type ClientHistory } from "./context";
 import type { PaymentPlanPayload } from "./payloads";
-import { assessInvoice, COLLECTIBLE_STATUSES, COLLECTION_ACTIONS, suggestedMinimum, type Assessment } from "./policy";
+import { assessInvoice, COLLECTIBLE_STATUSES, COLLECTION_ACTIONS, hasHardshipSignal, suggestedMinimum, type Assessment } from "./policy";
 import { payoutItemsFor, proposePayout } from "./proposePayout";
-import { refreshRiskReasons } from "./risk";
+import { collectionRationale } from "./rationale";
+import { refreshRiskReasons, riskFor } from "./risk";
 
 export interface RunSummary {
   runId: string;
@@ -50,9 +51,10 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 async function proposeCollection(
   inv: AgentInvoice,
   a: Extract<Assessment, { attention: true }>,
-  facts: ReturnType<typeof claudeFacts>,
+  history: ClientHistory | undefined,
   now: Date,
 ): Promise<{ actionId?: string; verdict: string; model?: string }> {
+  const facts = claudeFacts(inv, history, now);
   const planMinimum = a.action === "OFFER_PAYMENT_PLAN" ? suggestedMinimum(a.outstanding) : undefined;
 
   let draft: Draft;
@@ -93,6 +95,23 @@ async function proposeCollection(
     payload = { subject: draft.subject!, message: draft.message, stage: a.stage, tone: a.tone };
   }
 
+  // Frozen now, from the same inputs the policy used, so the approver sees what the rules saw.
+  const risk = riskFor(inv, history, now);
+  const rationale = collectionRationale({
+    now,
+    currency: inv.currency,
+    amount: num(inv.amount),
+    amountPaid: num(inv.amountPaid),
+    dueDate: inv.dueDate!,
+    payments: inv.payments.map((p) => ({ amount: num(p.amount), paidAt: p.paidAt })),
+    contacts: contactHistory(inv),
+    risk: risk && { score: risk.score, factors: risk.factors },
+    hardshipSignal: hasHardshipSignal(inv.project.client.notes),
+    assessment: a,
+    planMinimum,
+    model: model ?? null,
+  });
+
   // A stale pending proposal (the invoice escalated since) is superseded, never stacked.
   if (a.supersedes) {
     await prisma.agentAction.updateMany({
@@ -108,6 +127,7 @@ async function proposeCollection(
         invoiceId: inv.id,
         payload,
         reasoning: draft.reasoning,
+        rationale: rationale as unknown as Prisma.InputJsonValue,
         isDemo: inv.isDemo,
         pendingKey: collectKey(inv.id),
         proposedAt: now,
@@ -156,8 +176,7 @@ export async function runAgent(trigger: string): Promise<RunSummary> {
   const results = await mapLimit(flagged, 3, async ({ inv, assessment }) => {
     const base = { invoice: inv.number, daysOverdue: assessment.daysOverdue, outstanding: assessment.outstanding };
     try {
-      const facts = claudeFacts(inv, histories.get(inv.project.clientId)?.(inv.id), now);
-      const r = await proposeCollection(inv, assessment, facts, now);
+      const r = await proposeCollection(inv, assessment, histories.get(inv.project.clientId)?.(inv.id), now);
       if (r.model) models.add(r.model);
       return { ...base, verdict: `${assessment.stage} (${assessment.reason}) → ${r.verdict}`, actionId: r.actionId };
     } catch (e) {
