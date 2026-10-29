@@ -8,6 +8,8 @@ vi.mock("@/lib/ai/client", () => ({
   aiModel: () => "claude-opus-5-5",
   fallbackParams: () => ({}),
 }));
+// No database in CI: the demo clock's offset lives in AppSetting.
+vi.mock("@/lib/clock", () => ({ clock: { now: async () => new Date("2026-10-29T12:00:00Z") } }));
 const { extractInvoice } = await import("@/lib/ai/extractInvoice");
 
 const validExtraction = {
