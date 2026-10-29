@@ -6,8 +6,11 @@ import { useToast } from "@/components/Toast";
 import { postJson } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 
-/** DEMO_MODE toolbar: shows the simulated date and moves the demo clock. */
-export function DemoClock({ now, offsetDays }: { now: string; offsetDays: number }) {
+/**
+ * DEMO_MODE toolbar: shows the simulated date and moves the demo clock.
+ * `shared`: the hosted demo (Render), which judges share and which demo-reset.yml resets every 6 hours.
+ */
+export function DemoClock({ now, offsetDays, shared = false }: { now: string; offsetDays: number; shared?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -41,6 +44,11 @@ export function DemoClock({ now, offsetDays }: { now: string; offsetDays: number
         <button className={btn} disabled={busy || offsetDays === 0} onClick={() => move({ reset: true }, "Clock reset to today")}>Reset clock</button>
         <span className="ml-auto hidden text-violet-700 md:inline">Due dates, aging and the agent use this date. PayPal itself uses real time.</span>
       </div>
+      {shared && (
+        <p className="mx-auto max-w-6xl px-4 pb-1.5 text-violet-800">
+          <b>Shared demo:</b> other judges may be using it too. It resets automatically every 6 hours.
+        </p>
+      )}
     </div>
   );
 }

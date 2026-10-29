@@ -5,6 +5,7 @@
 | Web app | **Render** free web service (`render.yaml`) | Next.js server; migrations run on every deploy |
 | Database | **Neon** free Postgres | Doesn't expire (Render's free Postgres is deleted after 30 days; judging runs to Dec 15) |
 | Hourly agent | **GitHub Actions** schedule (`.github/workflows/agent-cron.yml`) | Free; Render cron jobs aren't |
+| Demo reset every 6h | **GitHub Actions** schedule (`.github/workflows/demo-reset.yml`) | The hosted demo is shared by judges |
 | Mode | `DEMO_MODE=true` | Invoices go to the sandbox buyer, demo clock and Reset demo enabled |
 
 ## How the database works
@@ -65,14 +66,15 @@ CI (`ci.yml`) needs no secrets: its tests mock PayPal and Claude.
    empty for now. The first deploy builds, runs `prisma migrate deploy` against Neon, then starts.
 5. **Check it.** Open `https://<service>.onrender.com/api/health`. Expect `"db":"ok"`, `"paypal":"sandbox"`,
    `"ai":"configured"` and `"demoMode":true`. Set `APP_BASE_URL` to that origin. Open the app and click
-   **Load demo data**. It creates five real sandbox invoices for your buyer, which takes about 30 seconds.
+   **Load demo data**. It creates six real sandbox invoices for your buyer, which takes about 30 seconds.
 6. **Webhook.** In the PayPal developer dashboard → your sandbox app → **Sandbox Webhooks → Add Webhook**:
    - URL: `https://<service>.onrender.com/api/webhooks/paypal`
    - Events: `Invoicing invoice paid`, `… updated`, `… cancelled`, `… refunded`, and all
      `Payment payouts-item …` events.
    - Save, copy the **Webhook ID** into Render's `PAYPAL_WEBHOOK_ID`. Render redeploys.
 7. **GitHub Actions.** Add the `SETTLE_URL` and `CRON_SECRET` secrets. Open the **Actions** tab → *Hourly
-   agent run* → **Run workflow** once and check that it logs `HTTP 200`.
+   agent run* → **Run workflow** once and check that it logs `HTTP 200`. Do the same for *Demo reset*. It
+   calls `/api/demo/reset` with the same `CRON_SECRET`, so it skips the manual 3-per-hour limit.
 8. **End-to-end check.** Create an invoice from a sample agreement, pay it as the sandbox buyer, wait for
    the webhook (or click Sync), approve the payout, and confirm the batch on `/payouts`.
 

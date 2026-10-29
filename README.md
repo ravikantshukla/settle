@@ -2,14 +2,18 @@
 
 **An AI collections agent for freelancers: it turns your agreements into PayPal invoices, chases late payments, and pays your subcontractors, but nothing goes out without your one-click approval.**
 
-[![CI](https://github.com/OWNER/settle/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-· **Live demo:** _https://settle-XXXX.onrender.com_ (PayPal sandbox, demo mode)
-· **Video:** _link_
+[![CI](https://github.com/ravikantshukla/settle/actions/workflows/ci.yml/badge.svg)](https://github.com/ravikantshukla/settle/actions/workflows/ci.yml)
+· **Live demo:** **[settle-5wx9.onrender.com](https://settle-5wx9.onrender.com)** (PayPal sandbox, demo mode)
+· **Video:** coming soon
 · MIT licensed
 
 > **Judges:** the hosted demo runs in **demo mode**. Every invoice is sent to a PayPal **sandbox** buyer
 > account, and a **demo clock** in the purple bar lets you jump +7 or +30 days to see the agent react to
 > late payments. No real money moves.
+>
+> The demo runs on Render's free tier, which sleeps when idle, so **the first load can take ~50 seconds**.
+> It's shared with other judges and **resets itself every 6 hours**; **Reset demo** gives you a fresh copy
+> any time (limited to 3 per hour).
 
 ---
 
@@ -145,10 +149,10 @@ addressed to sandbox test accounts.
 sending and the demo data are disabled, and it says so in the UI.
 
 ```bash
-git clone https://github.com/OWNER/settle.git && cd settle
+git clone https://github.com/ravikantshukla/settle.git && cd settle
 npm install
 cp .env.example .env      # fill it in, see the table below (DEMO_MODE=true for the demo clock)
-npm run setup             # create the SQLite DB; with PayPal keys set, creates 5 sandbox demo invoices (~30s)
+npm run setup             # create the SQLite DB; with PayPal keys set, creates 6 sandbox demo invoices (~30s)
 npm run dev               # http://localhost:3000 (the first page load compiles for ~10s)
 ```
 
@@ -212,7 +216,8 @@ docs/               deploy.md (Render + Neon + GitHub Actions), webhooks.md
 
 ## Deploying
 
-Render web service + Neon Postgres + an hourly GitHub Actions run of the agent. Step-by-step instructions
+Render web service + Neon Postgres + GitHub Actions schedules: the agent runs hourly, and the shared demo
+resets every 6 hours. Step-by-step instructions
 and every environment variable and secret are in [docs/deploy.md](docs/deploy.md).
 
 ## Built with

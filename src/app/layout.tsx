@@ -31,7 +31,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col font-sans antialiased`}>
         <ToastProvider>
           <AppHeader demoMode={demo} pendingActions={pendingActions} />
-          {demoClock && <DemoClock now={demoClock.now} offsetDays={demoClock.offsetDays} />}
+          {demoClock && <DemoClock now={demoClock.now} offsetDays={demoClock.offsetDays} shared={process.env.RENDER === "true"} />}
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">{children}</main>
           <footer className="border-t border-slate-200 bg-white">
             <p className="mx-auto max-w-6xl px-4 py-4 text-xs text-slate-500">

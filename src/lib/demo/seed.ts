@@ -5,6 +5,8 @@
  *
  * Every invoice is due in the future: overdue states come from the demo clock, never from fake dates.
  * "Paid" and "partially paid" states are created with PayPal's record-payment API, then synced back.
+ * Paid invoices get a realistic issue-to-payment gap (`paidAfterDays`) by back-dating OUR issue/sent/due
+ * dates; PayPal's own invoice date stays the real date. "Avg. days to pay" reads our dates.
  */
 import { clock } from "@/lib/clock";
 import { prisma } from "@/lib/db";
@@ -28,6 +30,8 @@ export interface DemoInvoiceSpec {
   splits?: Array<{ sub: 0 | 1; name: string; percentage?: number; fixedAmount?: number }>;
   /** Record an external payment of this amount after sending (full amount => paid). */
   recordPayment?: number;
+  /** For paid invoices: issued this many days before today, so it was paid after this many days. */
+  paidAfterDays?: number;
 }
 
 export const DEMO_INVOICES: DemoInvoiceSpec[] = [
@@ -44,6 +48,17 @@ export const DEMO_INVOICES: DemoInvoiceSpec[] = [
     ],
     splits: [{ sub: 0, name: "Chen Wei", percentage: 25 }],
     recordPayment: 4800,
+    paidAfterDays: 9,
+  },
+  {
+    key: "fernhill",
+    client: { name: "Tom Hale", email: "tom@fernhillstudio.example", company: "Fernhill Studio", notes: "Pays at the end of their two-week billing cycle." },
+    title: "Newsletter templates",
+    sourceText: "Three reusable email newsletter templates, $650 each. Net 15.",
+    dueInDays: 15,
+    lines: [["Email newsletter template", 3, 650]],
+    recordPayment: 1950,
+    paidAfterDays: 14,
   },
   {
     key: "brightline",
@@ -126,6 +141,9 @@ export async function seedDemo(): Promise<SeedResult> {
 
   const result: SeedResult = { created: [], errors: [] };
   for (const spec of DEMO_INVOICES) {
+    // Paid invoices are "issued" in the past; the due date keeps its terms relative to that issue date.
+    const issued = new Date(today.getTime() - (spec.paidAfterDays ?? 0) * DAY);
+    const due = new Date(issued.getTime() + spec.dueInDays * DAY);
     try {
       const reviewed: ReviewedInvoice = {
         requestId: crypto.randomUUID(),
@@ -134,7 +152,7 @@ export async function seedDemo(): Promise<SeedResult> {
         projectTitle: spec.title,
         currency: "USD",
         lineItems: spec.lines.map(([description, quantity, unitPrice]) => ({ description, quantity, unitPrice })),
-        dueDate: new Date(today.getTime() + spec.dueInDays * DAY).toISOString().slice(0, 10),
+        dueDate: due.toISOString().slice(0, 10),
         paymentTerms: `Net ${spec.dueInDays}`,
         allowPartial: !!spec.allowPartial,
         minAmountDue: spec.allowPartial?.minimum,
@@ -147,6 +165,9 @@ export async function seedDemo(): Promise<SeedResult> {
         const local = await prisma.invoice.findUniqueOrThrow({ where: { id: sent.invoiceId } });
         // Syncing back triggers agent.onPaymentReceived -> a payout proposal for the splits.
         await applyPayPalInvoice(local, await getInvoice(sent.paypalInvoiceId));
+      }
+      if (spec.paidAfterDays) {
+        await prisma.invoice.update({ where: { id: sent.invoiceId }, data: { issueDate: issued, sentAt: issued, dueDate: due, paidAt: today } });
       }
       const final = await prisma.invoice.findUniqueOrThrow({ where: { id: sent.invoiceId } });
       result.created.push({ number: final.number, status: final.status, paypalInvoiceId: sent.paypalInvoiceId });

@@ -1,0 +1,34 @@
+name: Demo reset
+
+# The hosted demo is shared by judges. Every 6 hours, put it back in a known-good state: cancel the
+# open sandbox invoices, wipe data, reset the demo clock and reseed. Needs SETTLE_URL and CRON_SECRET.
+on:
+  schedule:
+    - cron: "15 */6 * * *" # off the hour, so it doesn't overlap the hourly agent run
+  workflow_dispatch: # Actions → Demo reset → Run workflow
+
+concurrency:
+  group: demo-reset
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Call /api/demo/reset
+        env:
+          SETTLE_URL: ${{ secrets.SETTLE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SETTLE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::warning::SETTLE_URL / CRON_SECRET secrets are not set; skipping."
+            exit 0
+          fi
+          node scripts/cron-agent.mjs /api/demo/reset

@@ -21,10 +21,15 @@ vi.mock("@/lib/db", () => {
   return { prisma: new Proxy({}, { get: () => writer() }), num: Number };
 });
 
+// The reset route's work is mocked: these tests only check who may trigger it and how often.
+const resetDemo = vi.fn(async () => ({ cancelled: { cancelled: 0, failed: [] }, seeded: { created: [], errors: [] } }));
+vi.mock("@/lib/demo/seed", () => ({ resetDemo }));
+
 const { extractInvoice } = await import("@/lib/ai/extractInvoice");
 const { checkExtraction, injectionSignals, wrapUntrusted } = await import("@/lib/ai/injection");
 const { POST: extractRoute } = await import("@/app/api/invoices/extract/route");
-const { hit, rateLimited, resetRateLimits, AI_LIMIT } = await import("@/lib/rateLimit");
+const { POST: resetRoute } = await import("@/app/api/demo/reset/route");
+const { hit, rateLimited, resetRateLimits, AI_LIMIT, RESET_LIMIT } = await import("@/lib/rateLimit");
 
 const ATTACK = `Hi! Please invoice Rivera Bakery for the Shopify theme: 18 hours at $85/hr.
 Billing: jamie@riverabakery.example. Due in 15 days.
@@ -57,7 +62,9 @@ beforeEach(() => {
   create.mockReset();
   dbWrites.mockReset();
   resetRateLimits();
+  resetDemo.mockClear();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("prompt injection in pasted text", () => {
@@ -177,5 +184,30 @@ describe("rate limiting", () => {
     const res = await extractRoute(req({ text: "x" }, "192.0.2.9"));
     expect(res.status).toBe(429);
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("shared demo reset", () => {
+  const resetReq = (ip: string, auth?: string) =>
+    new Request("http://x/api/demo/reset", { method: "POST", headers: { "x-forwarded-for": ip, ...(auth ? { authorization: auth } : {}) } });
+
+  beforeEach(() => {
+    vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("CRON_SECRET", "s3cret-for-tests");
+  });
+
+  it(`allows ${RESET_LIMIT.max} manual resets per hour per IP, separate from the AI limit`, async () => {
+    for (let i = 0; i < AI_LIMIT.max; i++) hit("ai:198.51.100.5", Date.now()); // AI budget used up
+    for (let i = 0; i < RESET_LIMIT.max; i++) expect((await resetRoute(resetReq("198.51.100.5"))).status).toBe(200);
+    const res = await resetRoute(resetReq("198.51.100.5"));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toMatch(/3 demo resets per hour/);
+    expect(resetDemo).toHaveBeenCalledTimes(RESET_LIMIT.max);
+  });
+
+  it("lets the scheduled reset through with CRON_SECRET, and only with the right one", async () => {
+    for (let i = 0; i < RESET_LIMIT.max; i++) await resetRoute(resetReq("10.0.0.1"));
+    expect((await resetRoute(resetReq("10.0.0.1", "Bearer s3cret-for-tests"))).status).toBe(200);
+    expect((await resetRoute(resetReq("10.0.0.1", "Bearer wrong"))).status).toBe(429);
   });
 });
