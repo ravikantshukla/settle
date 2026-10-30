@@ -188,6 +188,15 @@ Did you run `setup` before filling in the keys? Run `npm run db:seed`, or click 
 Other commands: `npm test` (Vitest; PayPal and Claude mocked), `npm run lint`, `npm run typecheck`,
 `npm run smoke:invoice` (send one sandbox invoice from the CLI).
 
+**Browser tests (Playwright).** Run `npx playwright install chromium` once, start the app, then:
+
+| Command | What it does |
+|---|---|
+| `npm run test:e2e` | Smoke suite: every page loads with no console errors, dashboard filters, search, CSV export and side panel, inbox send times and "Why this action?", Settings validation. Read-only (no Claude or PayPal calls), so it's safe against the live demo: `E2E_BASE_URL=https://settle-5wx9.onrender.com npm run test:e2e` |
+| `npm run test:e2e:full` | Full suite: real Claude and PayPal sandbox. Drafts an invoice (checks timezone and country), schedules and cancels a reminder, negotiates the "5% was approved" reply against your limits, saves Settings. Changes data and cleans up after itself; localhost only. |
+
+They're not part of CI, which runs the mocked Vitest suite.
+
 ## Sandbox test accounts
 
 At [developer.paypal.com](https://developer.paypal.com/dashboard/accounts) → **Testing Tools → Sandbox
