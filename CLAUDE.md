@@ -11,8 +11,14 @@ AI collections agent for freelancers and small agencies. Built for the PayPal AI
    - AI-written reminders (sent through PayPal's invoice remind endpoint),
    - partial-payment plans,
    - PayPal Payouts to subcontractors for their share once an invoice is paid.
-5. Every money-moving or client-facing action requires one-click human approval.
-6. A dashboard (AG Grid) shows receivables, aging, risk, and the agent's next proposed action.
+5. Every money-moving or client-facing action requires one-click human approval. Each proposal carries a
+   "Why this action?" rationale built only from what the rules saw.
+6. Approved client-facing messages go out in the client's business hours (weekdays 9:00–18:00, their timezone).
+7. "Client replied": the user pastes a client's reply; Claude classifies it (promise to pay / hardship / dispute /
+   other) and, for hardship, code builds a payment plan within the user's negotiation limits (Settings page).
+8. A dashboard (AG Grid) shows receivables, aging, risk, and the agent's next proposed action.
+
+Demo persona: Aarav Mishra, a freelance designer-developer in Lucknow, India, with clients in the US and UK.
 
 ## Stack
 
@@ -32,16 +38,26 @@ src/
   components/       Shared React components (client components marked "use client")
   lib/
     paypal/         The ONLY place that talks to PayPal (auth, invoicing, payouts, webhooks)
-    ai/             Anthropic client + prompt/tool definitions (extraction, reminder drafting)
-    agent/          Agent: policy.ts (pure rules), runAgent, proposePayout, executeAction (the only
-                    path from an approved proposal to PayPal), payoutShares.ts (pure split math)
+    ai/             Anthropic client + prompt/tool definitions (extraction, message wording, reading client
+                    replies, risk reasons, payout notes) and the injection guard
+    agent/          Agent: policy.ts (pure rules), runAgent, proposePayout, rationale.ts ("Why this action?"),
+                    executeAction (the only path from an approved proposal to PayPal; also scheduling and
+                    dispatch of SCHEDULED messages), payoutShares.ts (pure split math)
+    negotiation/    Client replies: handleReply.ts (orchestration), limits.ts (pure, code-enforced plan limits)
+    settings/       Freelancer settings (name, city, timezone, negotiation limits) stored in AppSetting
+    demo/           DEMO_MODE routing and the real-sandbox demo seed
+    timezone.ts     Pure client-business-hours helpers (next send window, formatting)
+    clock.ts        Demo clock (real time + offset); all business dates go through clock.now()
     payouts/        Payout rows <-> PayPal payout items (shared by execution, webhook, sync)
     invoices/       Invoice domain logic: shared zod schemas, send flow, PayPal sync + webhook handling
     db/             Prisma client singleton and DB helpers (`num()` converts Prisma Decimals)
 prisma/             schema.prisma + migrations (SQLite), postgres/ (generated schema + Postgres migrations), seed.ts
 scripts/            One-off / smoke-test scripts run with tsx
-docs/               Developer docs (webhooks, deployment)
-render.yaml         Render Blueprint (web service; DB on Neon; hourly agent via .github/workflows/agent-cron.yml)
+tests/              Vitest (mocked PayPal + Claude; integration tests use a temp SQLite DB)
+e2e/                Playwright: smoke suite (read-only) + @full suite (real Claude/sandbox, localhost only)
+docs/               Developer docs (webhooks, deployment) + devpost.md and video-script.md
+render.yaml         Render Blueprint (web service; DB on Neon; GitHub Actions: agent-cron.yml hourly,
+                    demo-reset.yml every 6 hours)
 ```
 
 - Import with the `@/` alias (`@/lib/paypal/...`).
@@ -80,6 +96,8 @@ render.yaml         Render Blueprint (web service; DB on Neon; hourly agent via 
 - `npm run smoke:invoice` — create + send a sandbox invoice; `npm run smoke:invoice -- <id>` shows its status
 - `npm run typecheck` — `tsc --noEmit`
 - `npm test` — Vitest (tests/); PayPal and Anthropic are always mocked, never called
+- `npm run test:e2e` — Playwright smoke suite against a running app (`E2E_BASE_URL`, default localhost:3000)
+- `npm run test:e2e:full` — Playwright @full suite (real Claude + sandbox; changes data; localhost only)
 - CI (`.github/workflows/ci.yml`) runs lint + typecheck + tests on every push
 
 ## Data notes
@@ -88,9 +106,17 @@ render.yaml         Render Blueprint (web service; DB on Neon; hourly agent via 
   the demo clock (`src/lib/clock.ts`, offset in `AppSetting`). `isDemo = true` only marks seeded rows for a badge.
 - One `Payout` row per PayPal payout item, `sender_item_id = Payout.id`; a split can have several payouts when the
   client pays in installments. `PayoutSplit.payout*` fields are a summary refreshed by `refreshSplitSummary`.
-- `AgentAction.pendingKey` (`collect:<invoiceId>` / `payout:<invoiceId>`) is set while PROPOSED/APPROVED and cleared on
-  decision; its unique index prevents duplicate proposals across concurrent agent runs.
+- `AgentAction.pendingKey` (`collect:<invoiceId>` / `payout:<invoiceId>`) is set while PROPOSED/SCHEDULED/APPROVED and
+  cleared on decision; its unique index prevents duplicate proposals across concurrent agent runs.
+- `AgentAction.rationale` ("Why this action?") is frozen at proposal time from the policy's inputs, never from AI
+  output. `AgentAction.scheduledFor` is set for SCHEDULED messages; `dispatchScheduledActions` sends due ones on every
+  agent run, cron run and demo-clock move.
+- `ClientReply` stores each pasted reply (untrusted), its category, a promised date (pauses reminders until then) and
+  what the client asked for. Proposals made from a reply carry `payload.negotiation` (reply, limits, per-rule checks,
+  plan) and are never superseded by routine agent runs.
 - Rules (`agent/policy.ts`) decide stage, action, tone and the 0–100 risk score. Claude only writes wording and
   one-line reasons; every AI call has a template/rule fallback.
 - ESLint forbids `new Date()` / `Date.now()` in `src/` (use `clock.now()`); real-world timers carry an explicit disable.
-- `/api/cron/agent` (Bearer `CRON_SECRET`) syncs with PayPal, then runs the agent.
+- `/api/cron/agent` (Bearer `CRON_SECRET`) syncs with PayPal, then runs the agent. `/api/demo/reset` accepts the same
+  bearer (scheduled 6-hourly reset); manual resets are limited to 3/hour/IP.
+- Freelancer settings live in `AppSetting` key `freelancer.settings` and survive Reset demo.

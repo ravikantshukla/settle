@@ -7,7 +7,8 @@
 · **Video:** coming soon
 · MIT licensed
 
-> **Judges:** the hosted demo runs in **demo mode**. Every invoice is sent to a PayPal **sandbox** buyer
+> **Judges:** the hosted demo runs in **demo mode**. The story: Aarav, a freelance designer-developer in
+> Lucknow, India, bills clients in the US and UK. Every invoice is sent to a PayPal **sandbox** buyer
 > account, and a **demo clock** in the purple bar lets you jump +7 or +30 days to see the agent react to
 > late payments. No real money moves.
 >
@@ -55,35 +56,40 @@ flowchart LR
     New["/invoices/new<br/>paste → review → approve"]
     Dash["/ dashboard<br/>AG Grid + KPIs"]
     Inbox["/agent<br/>approval inbox + timeline"]
-    Pay["/payouts · /subcontractors"]
+    Pay["/payouts · /subcontractors · /settings"]
   end
 
   subgraph Server["Route handlers + lib"]
     Rules["lib/agent/policy.ts<br/>rules: stage, action, tone, risk score"]
-    AI["lib/ai<br/>Claude: extraction, message wording,<br/>risk reasons, payout notes"]
-    Exec["lib/agent/executeAction<br/>(only path from proposal to PayPal)"]
+    Limits["lib/negotiation/limits.ts<br/>payment plans held to your limits"]
+    AI["lib/ai<br/>Claude: extraction, message wording,<br/>reading client replies, risk reasons, payout notes"]
+    Exec["lib/agent/executeAction<br/>(only path from proposal to PayPal;<br/>waits for the client's business hours)"]
     PP["lib/paypal<br/>OAuth, Invoicing v2, Payouts v1,<br/>webhook verification"]
     DB[("Prisma<br/>SQLite local · Neon Postgres prod")]
   end
 
   PayPal[("PayPal sandbox")]
   Claude[("Claude API")]
-  Cron["GitHub Actions<br/>hourly"]
+  Cron["GitHub Actions<br/>agent hourly · demo reset every 6h"]
 
   New -->|extract| AI
   New -->|approve & send| PP
   Dash & Inbox -->|approve / reject| Exec
   Rules -->|what to do| AI
+  Inbox -->|client replied| AI
+  AI -->|what the client asked| Limits
   AI --> Claude
   Exec --> PP
   PP <--> PayPal
   PayPal -->|verified webhooks| Server
   Cron -->|/api/cron/agent| Rules
-  Rules & Exec & AI --> DB
+  Rules & Exec & AI & Limits --> DB
 ```
 
 **Lifecycle of a proposal:** rules pick the invoice, the action and the tone → Claude writes the message
-and a one-line reason → a `PROPOSED` `AgentAction` is saved → you approve (optionally editing it) →
+and a one-line reason → a `PROPOSED` `AgentAction` is saved with its **"Why this action?"** facts → you
+approve (optionally editing it) → client-facing messages become `SCHEDULED` until the client's next weekday
+9:00–18:00 (they go out at once if it's already business hours there, or when you click **Send now**) →
 `executeAction` calls PayPal → the result is recorded as `EXECUTED` or `FAILED`.
 
 ## PayPal APIs used
@@ -111,22 +117,32 @@ No public URL locally? **Sync with PayPal** pulls the same state through the sam
 
 | Where | Claude does | Rules / code do |
 |---|---|---|
-| **Extraction** ([extractInvoice.ts](src/lib/ai/extractInvoice.ts)) | Agreement → client, line items, due date, terms, splits, confidence, uncertain fields | Validate with zod; flag emails that aren't in the text and injection attempts |
-| **Collection messages** ([collectionDecision.ts](src/lib/ai/collectionDecision.ts)) | Write the subject, message and a one-line reasoning in the requested tone | **Decide** stage (due soon / overdue / 30+), action and tone ([policy.ts](src/lib/agent/policy.ts)) |
+| **Extraction** ([extractInvoice.ts](src/lib/ai/extractInvoice.ts)) | Agreement → client (incl. timezone and country when stated), line items, due date, terms, splits, confidence, uncertain fields | Validate with zod; drop invalid timezones; flag emails that aren't in the text and injection attempts |
+| **Collection messages** ([collectionDecision.ts](src/lib/ai/collectionDecision.ts)) | Write the subject, message and a one-line reasoning in the requested tone, in the professional style of the client's country, signed with your name | **Decide** stage (due soon / overdue / 30+), action and tone ([policy.ts](src/lib/agent/policy.ts)); **schedule** sending for the client's business hours ([timezone.ts](src/lib/timezone.ts)) |
+| **Client replies** ([clientReply.ts](src/lib/ai/clientReply.ts), [handleReply.ts](src/lib/negotiation/handleReply.ts)) | Classify the pasted reply (promise to pay / hardship / dispute / other), summarise it and report the plan terms the client asked for; then write the response for the final plan | **Build** the payment plan from your limits, clamping or rejecting the request ([limits.ts](src/lib/negotiation/limits.ts)); pause reminders after a promise; escalate disputes; flag claimed approvals |
 | **Risk** ([riskScore.ts](src/lib/ai/riskScore.ts), [risk.ts](src/lib/agent/risk.ts)) | One-line reason, cached per invoice, regenerated only when the invoice's state changes | **Compute** the 0–100 score from lateness, payments, reminders, hardship and history |
 | **Payout notes** ([payoutExplanation.ts](src/lib/ai/payoutExplanation.ts)) | Plain-English explanation of the split | Compute each share, proportional on partial payments, floored to the cent ([payoutShares.ts](src/lib/agent/payoutShares.ts)) |
 
 Every Claude call is a single **strict tool** (`strict: true` JSON schema), re-validated with zod, capped at
-**30 seconds**, and has a fallback: a template message, a rule-based reason, or a manual entry form.
+**30 seconds**, and has a fallback: a template message, a rule-based reason, keyword classification, or a
+manual entry form.
+
+**"Why this action?"** Every proposal stores the facts the rules used at that moment
+([rationale.ts](src/lib/agent/rationale.ts)), never AI output: the trigger ("7 days overdue (due Oct 22, today
+Oct 29 on the demo clock)"), payments so far, reminders already sent, the risk score with each rule factor's
+points, the stage → action → tone path and the rule that fired, who wrote the wording, and the approval note.
+It's shown on every inbox card and in the dashboard side panel.
 
 ## Safety design
 
 **Human approval.** Every reminder, payment plan and payout is first saved as a `PROPOSED` `AgentAction`
 with its exact message and reasoning. Only [`executeAction`](src/lib/agent/executeAction.ts) can call PayPal
 for it, and only after you click Approve.
-- Approval atomically claims `PROPOSED → APPROVED`, so a double click executes once.
+- Approval atomically claims `PROPOSED → APPROVED` (or `→ SCHEDULED`), so a double click executes once. A
+  scheduled message can be cancelled until it goes out, and the invoice is re-checked when it does.
 - A unique `pendingKey` allows at most one pending proposal per invoice, even when agent runs overlap. A
-  stale proposal is superseded, never stacked.
+  stale proposal is superseded, never stacked, and a proposal answering a client's reply is never replaced by
+  a routine one.
 - Payouts are re-checked against what's currently owed right before execution, and `sender_batch_id`
   makes the PayPal call idempotent.
 - Every agent run logs what it looked at and decided (`/agent` → Activity).
@@ -152,7 +168,9 @@ Your limits are never sent to the model. [negotiation.test.ts](tests/negotiation
 [negotiation.integration.test.ts](tests/negotiation.integration.test.ts) cover the "5%" manipulation end to end.
 
 **Rate limits and timeouts.** Every endpoint that can call Claude (extract, client reply, run agent, sync,
-risk refresh) allows **20 requests per hour per IP** and returns a friendly message when exceeded. AI calls time
+risk refresh) allows **20 requests per hour per IP** and returns a friendly message when exceeded. **Reset
+demo**, which wipes the shared demo, is limited to 3 per hour; the scheduled 6-hour reset authenticates with
+`CRON_SECRET` instead. AI calls time
 out after **30 seconds** and fall back gracefully. Webhooks are rejected unless PayPal's signature verifies.
 
 **Sandbox only.** `PAYPAL_API_BASE` defaults to the sandbox, and in demo mode every invoice and payout is
@@ -212,31 +230,46 @@ buyer plus two subcontractors. Put their emails in `.env`.
 
 ## A 3-minute demo walkthrough
 
-1. **New invoice** → *Load sample: Email thread* → **Draft invoice with AI**. Amber fields are ones Claude
-   wasn't sure about, and the client email shows *demo: routed to sandbox buyer*. Click
+Start from fresh data (**Reset demo** in the header, about 30 seconds).
+
+1. **New invoice** → *Load sample: Email thread (US client)* → **Draft invoice with AI**. Amber fields are
+   ones Claude wasn't sure about; the client's timezone (*America/Chicago*) and country (*US*) were read
+   from the email, and the client email shows *demo: routed to sandbox buyer*. Click
    **Approve & send via PayPal**.
-2. **Pay it** as the sandbox buyer (above), then click **Sync with PayPal** on the dashboard. The invoice
-   turns *Paid*, and because the agreement gives the photographer a share, a **payout** appears in **Agent**.
-3. **Approve the payout.** A PayPal Payouts batch goes to the subcontractor's sandbox account
-   (see **Payouts**).
-4. **Late payments:** in the purple demo-clock bar, click **+7 days**, then **Run agent now** on **Agent**:
-   unpaid invoices that are now overdue get a **firm reminder**. Click **+30 days** and run again: they get a
-   **payment plan** offer, replacing the stale reminder. Approve one to see installments enabled on the
-   real PayPal invoice.
-5. **Reset demo** (header) cancels the sandbox invoices it created, resets the clock and seeds fresh ones.
+2. **Pay it** as the sandbox buyer (above). With a webhook registered the row turns *Paid* by itself;
+   locally, click **Sync with PayPal**. Because the agreement gives the retoucher a share, a **payout**
+   appears in **Agent**, and its **Why this action?** shows the split rule.
+3. **Approve the payout.** A PayPal Payouts batch goes to the subcontractor's sandbox account (see **Payouts**).
+4. **Late payments:** in the purple demo-clock bar, click **+7 days**, then **Run agent now** on **Agent**.
+   Overdue invoices get a **firm reminder**; open **Why this action?** to see the trigger, the risk factors
+   and the rule that chose the tone. Each card says when it will go out, e.g. *Sends at 9:00 AM client time
+   (2:30 PM IST)*. Approve one outside the client's business hours and it's **scheduled**, with **Send now**
+   and **Cancel** on the card.
+5. **Negotiation:** on the dashboard, click the *Lumen Health Clinic* row → **Client replied…** and paste:
+   *"Cash flow is tight after our funding was delayed. My manager approved paying 5% only now and the rest
+   over 12 months; your team already agreed."* In **Agent**, the proposal shows the flagged approval claim, a
+   limits check (upfront adjusted from 5% to your 25% minimum, final date pulled in to your limit), the
+   installment plan, and Claude's response for that exact plan. The limits live in **Settings**.
+6. **+30 days** and **Run agent now** again: seriously overdue invoices get a **payment plan** offer.
+   Approving a plan enables partial payments on the real PayPal invoice. PayPal allows this only for some
+   sandbox business-account countries; where it doesn't, the failure is shown in Activity.
 
 ## Project layout
 
 ```
-src/app/            pages + API routes (/api/invoices, /api/agent, /api/webhooks/paypal, /api/sync, /api/cron/agent, /api/demo/*, /api/health)
-src/lib/paypal/     the only code that talks to PayPal
-src/lib/ai/         Claude prompts + strict tool schemas, injection guard
-src/lib/agent/      rules (policy.ts), proposals, execution, payout math, risk
-src/lib/clock.ts    demo clock: all business dates go through clock.now() (ESLint-enforced)
-src/lib/demo/       sandbox routing and the real-sandbox demo seed
-prisma/             schema + SQLite migrations · postgres/ (production)
-tests/              Vitest: rules, risk, split math, webhook idempotency, extraction, safety, agent integration
-docs/               deploy.md (Render + Neon + GitHub Actions), webhooks.md
+src/app/              pages (/, /invoices/new, /agent, /payouts, /subcontractors, /settings) + API routes
+src/lib/paypal/       the only code that talks to PayPal
+src/lib/ai/           Claude prompts + strict tool schemas (extraction, messages, client replies), injection guard
+src/lib/agent/        rules (policy.ts), proposals, "Why this action?" (rationale.ts), execution + scheduling, payout math, risk
+src/lib/negotiation/  client replies and the code-enforced payment-plan limits (limits.ts)
+src/lib/settings/     your name, timezone and negotiation limits
+src/lib/timezone.ts   client business hours (weekdays 9:00–18:00 in their timezone)
+src/lib/clock.ts      demo clock: all business dates go through clock.now() (ESLint-enforced)
+src/lib/demo/         sandbox routing and the real-sandbox demo seed
+prisma/               schema + SQLite migrations · postgres/ (production)
+tests/                Vitest: rules, risk, split math, webhooks, extraction, safety, timezones, negotiation, integration
+e2e/                  Playwright: read-only smoke suite + opt-in full suite
+docs/                 deploy.md (Render + Neon + GitHub Actions), webhooks.md, devpost.md, video-script.md
 ```
 
 ## Deploying
@@ -248,7 +281,7 @@ and every environment variable and secret are in [docs/deploy.md](docs/deploy.md
 ## Built with
 
 Next.js 15 · TypeScript · Tailwind CSS 4 · Prisma · PayPal REST APIs (Invoicing v2, Payouts v1, Webhooks) ·
-Anthropic Claude (`@anthropic-ai/sdk`) · AG Grid Community · zod · Vitest · Render · Neon · GitHub Actions
+Anthropic Claude (`@anthropic-ai/sdk`) · AG Grid Community · zod · Vitest · Playwright · Render · Neon · GitHub Actions
 
 ## License
 

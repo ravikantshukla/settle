@@ -7,9 +7,9 @@ PayPal's `verify-webhook-signature` API against `PAYPAL_WEBHOOK_ID`, stored in `
 | Event | Effect |
 |---|---|
 | `INVOICING.INVOICE.PAID` / `.UPDATED` / `.CANCELLED` / `.REFUNDED` | Re-fetches the invoice from PayPal and mirrors status + amount paid. If the paid amount grew, calls `agent.onPaymentReceived`. |
-| `PAYMENT.PAYOUTS-ITEM.*` | Updates the matching `PayoutSplit` (by `payout_item_id` or `sender_item_id` = split id). |
+| `PAYMENT.PAYOUTS-ITEM.*` | Updates the matching `Payout` row (by `payout_item_id`, or `sender_item_id` = `Payout.id`) and refreshes its split's summary. |
 
-No public URL? Skip webhooks entirely and use **Sync with PayPal** on the invoices page
+No public URL? Skip webhooks entirely and use **Sync with PayPal** on the dashboard
 (`POST /api/sync`). It pulls every open invoice from PayPal through the same code path.
 
 ## Register the webhook (sandbox)

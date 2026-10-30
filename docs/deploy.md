@@ -57,9 +57,13 @@ CI (`ci.yml`) needs no secrets: its tests mock PayPal and Claude.
    Tools → Sandbox Accounts, make sure you have one **Business** account (your app's owner) and create
    **three Personal** accounts: buyer, sub 1, sub 2. In Apps & Credentials → Sandbox → your app, note the
    client ID/secret and check that **Invoicing** and **Payouts** are enabled under features.
+   Create the business account with country **United States** if you can: PayPal only allows partial
+   payments (the agent's payment plans) for some countries, and otherwise approving a plan fails.
 2. **Neon.** Sign up at [neon.tech](https://neon.tech) → create a project (any region near your Render
    region) → **Connection details** → turn **Connection pooling off** → copy the connection string.
    Migrations need the direct connection; Prisma's migrate lock doesn't work through PgBouncer.
+   If your Neon login is managed by Vercel ("New project" is disabled), create the database from
+   vercel.com → **Storage → Create Database → Neon** instead and copy `DATABASE_URL_UNPOOLED`.
 3. **Push the repo** to a public GitHub repository.
 4. **Render.** Go to **New → Blueprint**, select the repo, then **Apply**. Fill in every `sync: false`
    variable from the table above. Put a placeholder in `APP_BASE_URL` and leave `PAYPAL_WEBHOOK_ID`
@@ -84,4 +88,10 @@ CI (`ci.yml`) needs no secrets: its tests mock PayPal and Claude.
   script retries, and PayPal retries webhooks, so nothing is lost. Open the app a minute before a demo.
 - GitHub disables scheduled workflows after 60 days without repository activity. Push a commit or
   re-enable it if judging runs longer.
-- The rate limiter is in memory (20 AI requests per hour per IP). That's fine for one Render instance.
+- The rate limiter is in memory (20 AI requests per hour per IP, 3 manual demo resets per hour). That's fine
+  for one Render instance.
+- If a scheduled workflow is missing from the **Actions** tab after the repo's first push, GitHub hasn't
+  registered it yet: push any change to that workflow file and it appears.
+- Settings (your name, timezone and negotiation limits) are stored in the database and survive demo resets.
+- After the deploy, check the browser side with the read-only Playwright suite:
+  `E2E_BASE_URL=https://<service>.onrender.com npm run test:e2e`.
