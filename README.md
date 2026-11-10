@@ -229,7 +229,8 @@ They're not part of CI, which runs the mocked Vitest suite.
 
 At [developer.paypal.com](https://developer.paypal.com/dashboard/accounts) → **Testing Tools → Sandbox
 Accounts** you get a **Business** account (your app's owner: it sends invoices and payouts) and a
-**Personal** account. Create two more personal accounts with **Create account → Personal**, so you have a
+**Personal** account. Create the business account with country **United States** and make your REST app
+under it: PayPal offers partial payments (the agent's payment plans) only in some countries. Create two more personal accounts with **Create account → Personal**, so you have a
 buyer plus two subcontractors. Put their emails in `.env`.
 
 **To pay an invoice as the client:**
@@ -261,8 +262,9 @@ Start from fresh data (**Reset demo** in the header, about 30 seconds).
    limits check (upfront adjusted from 5% to your 25% minimum, final date pulled in to your limit), the
    installment plan, and Claude's response for that exact plan. The limits live in **Settings**.
 6. **+30 days** and **Run agent now** again: seriously overdue invoices get a **payment plan** offer.
-   Approving a plan enables partial payments on the real PayPal invoice. PayPal allows this only for some
-   sandbox business-account countries; where it doesn't, the failure is shown in Activity.
+   Approving one enables partial payments with the minimum installment on the real PayPal invoice and sends
+   the client the note. (The hosted demo's sandbox business account is US-based; PayPal offers partial
+   payments only in some countries, and the app explains it plainly if yours doesn't.)
 
 ## Project layout
 

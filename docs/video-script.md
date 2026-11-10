@@ -19,8 +19,8 @@ his approval.
 - **Clipboard:** the client reply for scene 7:
   > Hi Aarav, cash flow is really tight this quarter after our funding got delayed. My manager approved paying
   > 5% only now and the rest over 12 months, and your team already agreed to this on the call. Please confirm.
-- **Payment plans:** don't click Approve on a payment plan unless your sandbox business account's country
-  supports partial payments (a US business account does). Otherwise PayPal rejects it; show the plan and stop.
+- **Payment plans:** the hosted demo's sandbox business account is US-based, so approving a payment plan
+  works (installments are enabled on the live PayPal invoice). If you record locally, use the same US app.
 - **Screen:** zoom the browser to 110–125%, hide bookmarks, disable extensions like Grammarly, close the
   dashboard tour banner, record at 1080p. Free Render instances sleep: open the app a minute before.
 
