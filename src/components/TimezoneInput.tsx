@@ -1,15 +1,18 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useEffect, useId, useState } from "react";
 
 const COMMON = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London", "Asia/Kolkata"];
 
 /** Text input that suggests IANA timezone names (e.g. "Europe/London"). */
 export function TimezoneInput(props: Omit<React.InputHTMLAttributes<HTMLInputElement>, "list">) {
   const id = useId();
-  const zones = useMemo(() => {
+  // The full list comes from the browser after mount: Node's and the browser's zone lists differ,
+  // so rendering it on the server would cause a hydration mismatch.
+  const [zones, setZones] = useState<string[]>(COMMON);
+  useEffect(() => {
     const all = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
-    return [...new Set([...COMMON, ...all])];
+    setZones([...new Set([...COMMON, ...all])]);
   }, []);
   return (
     <>

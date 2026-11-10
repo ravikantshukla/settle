@@ -13,7 +13,7 @@ import { prisma } from "@/lib/db";
 import { applyPayPalInvoice } from "@/lib/invoices/syncFromPayPal";
 import { sendNewInvoice } from "@/lib/invoices/sendNewInvoice";
 import type { ReviewedInvoice } from "@/lib/invoices/schema";
-import { cancelInvoice, getInvoice, PayPalError, recordPayment } from "@/lib/paypal";
+import { cancelInvoice, getInvoice, isPartialPaymentsUnavailable, PayPalError, recordPayment } from "@/lib/paypal";
 import { COLLECTIBLE_STATUSES } from "@/lib/agent/policy";
 import { DemoConfigError, sandboxSubcontractorEmails } from "./routing";
 
@@ -162,6 +162,8 @@ export const DEMO_INVOICES: DemoInvoiceSpec[] = [
 export interface SeedResult {
   created: Array<{ number: string; status: string; paypalInvoiceId: string }>;
   errors: Array<{ key: string; error: string }>;
+  /** Non-fatal adjustments (e.g. an invoice created without partial payments). */
+  notes: string[];
 }
 
 const errorText = (e: unknown) => (e instanceof PayPalError ? e.toDisplayString() : e instanceof Error ? e.message : String(e));
@@ -185,7 +187,7 @@ export async function seedDemo(): Promise<SeedResult> {
   const subEmails = sandboxSubcontractorEmails();
   const today = await clock.now();
 
-  const result: SeedResult = { created: [], errors: [] };
+  const result: SeedResult = { created: [], errors: [], notes: [] };
   for (const spec of DEMO_INVOICES) {
     // Paid invoices are "issued" in the past; the due date keeps its terms relative to that issue date.
     const issued = new Date(today.getTime() - (spec.paidAfterDays ?? 0) * DAY);
@@ -204,7 +206,16 @@ export async function seedDemo(): Promise<SeedResult> {
         minAmountDue: spec.allowPartial?.minimum,
         splits: (spec.splits ?? []).map((s) => ({ name: s.name, email: subEmails[s.sub], percentage: s.percentage, fixedAmount: s.fixedAmount })),
       };
-      const sent = await sendNewInvoice(reviewed, { forceRecipient: buyer, isDemo: true, clientNotes: spec.client.notes });
+      const sendOpts = { forceRecipient: buyer, isDemo: true, clientNotes: spec.client.notes };
+      let sent;
+      try {
+        sent = await sendNewInvoice(reviewed, sendOpts);
+      } catch (e) {
+        if (!(spec.allowPartial && isPartialPaymentsUnavailable(e))) throw e;
+        // This sandbox business account's country can't do partial payments: keep the invoice, drop the option.
+        sent = await sendNewInvoice({ ...reviewed, allowPartial: false, minAmountDue: undefined }, sendOpts);
+        result.notes.push(`${spec.key}: created without partial payments (PayPal doesn't offer them for this account's country).`);
+      }
 
       if (spec.recordPayment) {
         await recordPayment(sent.paypalInvoiceId, { amount: spec.recordPayment, currency: "USD", method: "BANK_TRANSFER", note: "Demo seed payment" });

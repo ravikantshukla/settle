@@ -3,7 +3,18 @@
  * https://developer.paypal.com/docs/api/invoicing/v2/
  */
 import { randomUUID } from "node:crypto";
-import { paypalFetch } from "./client";
+import { paypalFetch, PayPalError } from "./client";
+
+/**
+ * PayPal only offers partial payments (installment plans) to business accounts in some countries;
+ * elsewhere, creating or updating an invoice with allow_partial_payment fails with this error.
+ */
+export function isPartialPaymentsUnavailable(e: unknown): boolean {
+  const phrase = /partial payments are not available/i;
+  if (e instanceof PayPalError) return e.details.some((d) => phrase.test(d.description ?? ""));
+  // Callers such as sendNewInvoice wrap PayPal errors with their display text.
+  return e instanceof Error && phrase.test(e.message);
+}
 import type {
   InvoiceList,
   InvoiceStatus,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { invalidateAccessToken, paypalFetch, PayPalError } from "@/lib/paypal";
+import { invalidateAccessToken, isPartialPaymentsUnavailable, paypalFetch, PayPalError } from "@/lib/paypal";
 
 function mockFetch(apiResponse: Response) {
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -44,5 +44,9 @@ describe("paypalFetch", () => {
     expect(err).toBeInstanceOf(PayPalError);
     expect(err.debugId).toBe("abc123");
     expect(err.toDisplayString()).toMatch(/Partial payments are not available in your country.*debug_id abc123/);
+    // Recognised directly, and after a caller has wrapped it in a plain Error with the display text.
+    expect(isPartialPaymentsUnavailable(err)).toBe(true);
+    expect(isPartialPaymentsUnavailable(new Error(err.toDisplayString()))).toBe(true);
+    expect(isPartialPaymentsUnavailable(new Error("Request is not well-formed"))).toBe(false);
   });
 });

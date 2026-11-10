@@ -4,7 +4,7 @@
 import type { AgentAction, Prisma } from "@prisma/client";
 import { clock } from "@/lib/clock";
 import { num, prisma } from "@/lib/db";
-import { createPayoutBatch, enablePartialPayment, getPayoutBatch, PayPalError, remindInvoice } from "@/lib/paypal";
+import { createPayoutBatch, enablePartialPayment, getPayoutBatch, isPartialPaymentsUnavailable, PayPalError, remindInvoice } from "@/lib/paypal";
 import { applyPayoutBatch, refreshSplitSummary } from "@/lib/payouts/records";
 import { agentInvoiceInclude, type AgentInvoice } from "./context";
 import { ActionEdits, EscalatePayload, PaymentPlanPayload, PayoutPayload, ReminderPayload } from "./payloads";
@@ -174,7 +174,16 @@ async function perform(action: AgentAction): Promise<{ result: Record<string, un
       if (p.minimumAmount > outstanding + 0.005) {
         throw new Error(`Minimum installment ${p.minimumAmount} exceeds the outstanding ${outstanding.toFixed(2)}.`);
       }
-      await enablePartialPayment(invoice.paypalInvoiceId!, p.minimumAmount);
+      try {
+        await enablePartialPayment(invoice.paypalInvoiceId!, p.minimumAmount);
+      } catch (e) {
+        if (isPartialPaymentsUnavailable(e)) {
+          throw new Error(
+            "PayPal doesn't offer partial payments to business accounts in this sandbox account's country, so the installment plan couldn't be enabled and nothing was sent to the client. A US sandbox business account supports it.",
+          );
+        }
+        throw e;
+      }
       await remindInvoice(invoice.paypalInvoiceId!, { subject: p.subject, note: p.message });
       await prisma.invoice.update({ where: { id: invoice.id }, data: { allowPartial: true, minAmountDue: p.minimumAmount } });
       return {
