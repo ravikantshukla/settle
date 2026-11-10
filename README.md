@@ -48,6 +48,16 @@ quietly get written off because chasing them feels worse than losing the money.
 8. **A receivables dashboard** (AG Grid) shows what's outstanding, aging, a risk score per invoice with a
    one-line reason, and the agent's next proposed action with inline Approve / Reject.
 
+## Screenshots
+
+| Dashboard (AG Grid) | Agent inbox with "Why this action?" |
+|---|---|
+| ![Receivables dashboard](docs/screenshots/1-dashboard.png) | ![Agent inbox](docs/screenshots/3-agent-inbox.png) |
+
+| Invoice timeline + "Client replied…" | Settings: negotiation limits |
+|---|---|
+| ![Invoice timeline](docs/screenshots/2-invoice-timeline.png) | ![Settings](docs/screenshots/5-settings.png) |
+
 ## Architecture
 
 ```mermaid

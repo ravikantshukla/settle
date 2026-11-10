@@ -83,6 +83,22 @@ agrees to terms on its own. So we set ourselves a constraint: the agent does the
 [timezone.ts]: https://github.com/ravikantshukla/settle/blob/master/src/lib/timezone.ts
 [limits.ts]: https://github.com/ravikantshukla/settle/blob/master/src/lib/negotiation/limits.ts
 
+## Tools used, and how
+
+- **PayPal Developer Platform (sandbox):** Invoicing v2 to create, send, remind, update (partial payments)
+  and sync invoices; Payouts v1 to pay subcontractors; Webhooks (signature-verified) for payment and payout
+  events. Every PayPal call goes through one module, `src/lib/paypal`.
+- **Anthropic Claude (`claude-opus-5-5` via `@anthropic-ai/sdk`):** reads pasted agreements and client
+  replies (as untrusted data), writes reminder and payment-plan messages in the tone the rules chose, and
+  explains risk scores and payout splits. Always called as one strict-schema tool, re-validated with zod,
+  with a 30-second timeout, a fallback and a rate limit. Claude never decides amounts, terms or actions.
+- **AG Grid Community (sponsor tool):** the receivables dashboard and payout history: custom cell renderers
+  (status pills, risk bars, inline Approve/Reject), column groups, quick search, aging-bucket filters, a
+  pinned totals row and CSV export.
+- **Render (sponsor tool):** hosts the live demo (Blueprint in `render.yaml`), with Neon Postgres and
+  GitHub Actions schedules for the hourly agent run and the 6-hourly demo reset.
+- Also: Next.js 15, TypeScript, Tailwind CSS, Prisma, zod, Vitest, Playwright.
+
 ## Challenges we ran into
 
 - **Making "the agent proposes, the human approves" airtight.** Overlapping agent runs, double clicks and
